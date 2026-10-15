@@ -17,13 +17,26 @@ xcodebuild -project $APP.xcodeproj -scheme $APP -configuration Debug \
 
 BUILT="$DERIVED/Build/Products/Debug/$APP.app"
 
+# Tier 1 helper (decision 0005): copy Homebrew's harper-ls into the bundle so it's signed with the app.
+HARPER="$(command -v harper-ls || true)"
+if [ -n "$HARPER" ]; then
+    mkdir -p "$BUILT/Contents/Helpers"
+    cp -fL "$HARPER" "$BUILT/Contents/Helpers/harper-ls"
+else
+    echo "warning: harper-ls not found (brew install harper); tier 1 falls back to macOS spelling" >&2
+fi
+HELPER="$BUILT/Contents/Helpers/harper-ls"
+
 # A stable signature is what keeps the Accessibility permission across rebuilds.
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
-    codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$BUILT"
+    SIGN=("$IDENTITY")
 else
     echo "warning: '$IDENTITY' not in keychain; signing ad hoc (permission resets on every rebuild)" >&2
-    codesign --force --options runtime --sign - "$BUILT"
+    SIGN=(-)
 fi
+# Nested code first, then the app that seals it.
+[ -f "$HELPER" ] && codesign --force --options runtime --timestamp=none --sign "${SIGN[@]}" "$HELPER"
+codesign --force --options runtime --timestamp=none --sign "${SIGN[@]}" "$BUILT"
 
 pkill -x $APP 2>/dev/null || true
 rm -rf "$DEST"

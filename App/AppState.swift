@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     /// Values from `.env` (debug builds only). Never logged or shown.
     private(set) var env: [String: String] = [:]
     private var permissionTimer: Timer?
+    private var checker: CheckController?
 
     func start() {
         loadEnv()
@@ -28,6 +29,7 @@ final class AppState: ObservableObject {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         accessibilityGranted = AXIsProcessTrustedWithOptions(options)
         log.info("Accessibility trusted at launch: \(self.accessibilityGranted, privacy: .public)")
+        startCheckingIfAllowed()
 
         // There is no reliable callback when the user flips the switch, so poll until granted.
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
@@ -40,7 +42,19 @@ final class AppState: ObservableObject {
         if trusted != accessibilityGranted {
             accessibilityGranted = trusted
             log.info("Accessibility trusted changed: \(trusted, privacy: .public)")
+            startCheckingIfAllowed()
         }
+    }
+
+    /// Reading other apps' text needs the Accessibility permission, so checking starts once it's granted.
+    private func startCheckingIfAllowed() {
+        guard accessibilityGranted, checker == nil else { return }
+        let checker = CheckController()
+        checker.start()
+        self.checker = checker
+        #if DEBUG
+        DebugServer.start(controller: checker)
+        #endif
     }
 
     func openAccessibilitySettings() {

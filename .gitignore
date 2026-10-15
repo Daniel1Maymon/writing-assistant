@@ -7,3 +7,4 @@ DerivedData/
 xcuserdata/
 .swiftpm/
 WritingAssistant.xcodeproj/
+WritingAssistant *.xcodeproj/

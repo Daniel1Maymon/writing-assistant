@@ -18,9 +18,9 @@ writing-assistant/
   Core/                     # Swift package: pure logic (no AppKit)
     Sources/Core/           # env parser, segmenter, hasher, diff, merge, cache, relocate, mistake log, LLM client
     Tests/CoreTests/        # Swift Testing
-  AXKit/                    # Accessibility reader/writer wrappers
-  UITests/                  # XCUITest driving TextEdit / a fixture app
-  Fixtures/FixtureApp/      # tiny app with NSTextView, NSTextField, WKWebView textarea
+  AXKit/                    # (part of the app target) focus tracking, value/caret/bounds reading
+  Fixtures/FixtureApp/      # tiny app with NSTextView, NSTextField, NSSecureTextField + a command socket (decision 0006)
+  scripts/m2-check.py       # integration harness: drives FixtureApp, reads the debug socket
   eval/                     # golden.jsonl + score.py (Python, calls Core via CLI)
   tools/wa-cli/             # command-line target: `wa-cli check "sentence"` for eval/debug
 ```
@@ -29,7 +29,7 @@ writing-assistant/
 
 - **Unit (Swift Testing, `swift test`):** all of `Core` is pure Swift — no AppKit, no network. Target ≥90% coverage. Swift Testing (`import Testing`) runs with or without full Xcode; XCUITest still needs Xcode.
 - **LLM client:** `URLProtocol` stub returns canned OpenRouter responses; one opt-in live test (`LIVE_OPENROUTER=1`) reads `.env`.
-- **AX integration:** XCUITest launches `FixtureApp`, types text, asserts the app's overlay state via a debug-only local socket (`/tmp/wa-debug.sock`) that dumps current suggestions + rects as JSON.
+- **AX integration:** `scripts/m2-check.py` drives `FixtureApp` over `/tmp/wa-fixture.sock` and reads the installed app's state (suggestions, rects, counters) from `/tmp/wa-debug.sock`. Not XCUITest: that needs an admin password for UI automation (decision 0006).
 - **Manual matrix (any writing platform):** native — TextEdit, Notes, Mail, Messages, Pages; web in any browser — Gmail, LinkedIn, X, a plain form; Electron — Slack, Notion, VS Code; hotkey layer — Google Docs, Terminal.
 - **Quality eval:** `eval/golden.jsonl` — ~100 sentences with known errors + ~50 clean ones. `python eval/score.py --model <id>` reports recall, false-positive rate, p95 latency and cost per tier.
 - **CI:** GitHub Actions macOS runner: `swift test` + `xcodebuild test` (UI tests can't get Accessibility permission on CI → run locally only).
@@ -115,21 +115,46 @@ Exit: `swift test` green, coverage ≥90%.
 
 ## M2 — Read text + local checks + underlines (3 days)
 
-Build: `AXKit` focused-element tracking with AXObserver, value + caret reading, skip secure fields; NSSpellChecker tier 1 with 400 ms debounce; overlay `NSPanel` that draws squiggles from `kAXBoundsForRangeParameterizedAttribute`.
-Tests:
-- XCUITest on FixtureApp `NSTextView`: type "I recieve the mail." → debug socket reports ≥1 suggestion with non-empty rect within 1 s. (Changed from "I has a apple.": the 2026-10-15 probe showed `NSSpellChecker` doesn't flag that. Use a grammar sentence here only if the M0 re-probe or Harper says tier 1 catches it.)
-- Edit sentence 2 → sentence 1 suggestions unchanged (same ids).
-- Secure field → zero checks (debug counter).
-- Move/resize window → rects updated within 100 ms.
-- Perf: 2,000-word document, one-word edit → tier-1 recheck < 100 ms.
-Manual: underlines align in TextEdit, Notes, Mail.
-Exit: tests green + manual check.
+Build: AX focus tracking (AXObserver on the frontmost app: focus, value and selection changes), read value + caret, skip secure fields. Tier 1 = Harper over LSP (decision 0005), only on changed sentences, 400 ms after typing stops; `NSSpellChecker` spelling if Harper can't start. Overlay `NSPanel` (click-through for now) draws squiggles from `kAXBoundsForRangeParameterizedAttribute`. Debug socket + `FixtureApp` + `scripts/m2-check.py` (decision 0006).
+
+Unit tests (`swift test`, Core):
+
+| Area | Test |
+| --- | --- |
+| LSP framing | Encode adds the right `Content-Length` (bytes, not characters, with Hebrew/emoji); the decoder handles a message split across reads, two messages in one read, and a header without a body yet |
+| Harper mapping | LSP line/character → UTF-16 offset for single line, multiple lines, `\r\n`, emoji before the span |
+| Harper mapping | Diagnostic + quickfixes → `Suggestion`: `SpellCheck` → spelling, other rules → grammar; replacements deduped, at most 3; ruleId `harper.<code>`; out-of-range diagnostic dropped |
+| Document state | First text → every sentence dirty; edit sentence 2 → only sentence 2 dirty, sentence 1 suggestions keep the same ids |
+| Document state | Sentence-relative ranges → absolute ranges; still right after text is inserted before the sentence; a deleted sentence's suggestions disappear |
+
+Integration (`scripts/m2-check.py`, installed debug app + FixtureApp):
+
+| # | Scenario | Pass |
+| --- | --- | --- |
+| 1 | Type "I recieve the mail. I has a apple." in the text view | Within 1 s: suggestions for "recieve" (spelling), "has" and "a" (grammar), each with a non-empty rect inside the window |
+| 2 | Then change sentence 2 only | Sentence-1 suggestion ids unchanged; only 1 sentence re-checked (counter) |
+| 3 | Type into the secure field | Zero checks (counter unchanged), no suggestions |
+| 4 | Move the window 120 pt | Rects move by 120 pt within 100 ms |
+| 5 | 2,000-word document, change one word | Re-check time (read → suggestions ready, not counting the 400 ms wait) < 100 ms |
+| 6 | Kill the `harper-ls` helper | Next check restarts it and still returns suggestions |
+
+Manual (real apps, installed app): underlines sit under the right words in TextEdit, Notes and Mail, and follow scrolling. Verified manually only, because alignment is visual and screenshots are blocked on this machine.
+
+Exit: unit tests green, `m2-check.py` all pass, manual check done.
+
+**M2 result (2026-10-15): exit passed for TextEdit; Notes and Mail still to check.**
+- Unit: 59/59 (`swift test`).
+- `m2-check.py`: 6/6, three runs in a row. Underlines in 0.04–0.24 s; rects follow a window move in 5 ms; 2,000-word one-word edit re-checked in 43 ms; a killed `harper-ls` restarts.
+- Manual, real app: TextEdit through the installed app. The debug socket listed itt, has, a, dont, teh with replacements, and the user's screenshot shows the squiggles exactly under those words.
+- Not yet: Notes and Mail. A `mailto:` draft focuses the To field, and only a click puts focus in the body, which can't be done from the shell.
+- Bug found by the harness, fixed: apps re-announce focus on the same field, which wiped its results. Now a refocus of the same field keeps them.
 
 ## M3 — Suggestion card, accept, dismiss (2 days)
 
 Build: click on underline → popover; accept via AX set-selected-text, fallback paste (restore pasteboard after); ⌥⏎ shortcut; dismiss / ignore rule / add to dictionary (persisted in `~/Library/Application Support/WritingAssistant`).
 Tests:
 - XCUITest: accept → field text equals expected; Cmd+Z in the host app restores original.
+- Accept a whole-sentence replacement (needed by M4 rewrites, decision 0007) → field text equals expected, caret ends after the sentence.
 - Pasteboard contents identical before and after a paste-fallback accept.
 - Dismissed item stays gone after more typing; dictionary word never flagged again.
 - Mistake log: accept → exactly one new row with the sentence **before** the fix, original, replacement, category, app bundle id; dismiss / ignore rule / add to dictionary → no row; log turned off in Settings → no row; log file made unwritable → fix still applied, no crash.
@@ -145,14 +170,17 @@ Tests (stubbed):
 - Change sentence mid-request → request cancelled, stale result never shown.
 - Cap reached → no more requests that day; menu shows warning.
 - Request body never logged (capture `os_log` in test).
+- Rewrite (decision 0007): `rewrite` with kind `fix` → one sentence-wide suggestion (red); kind `natural` → one sentence-wide suggestion (blue); `null` → none; a rewrite equal to the sentence → dropped; malformed `rewrite` → edits still used.
+- Accepting a rewrite replaces the whole sentence, removes that sentence's word-level suggestions, and logs exactly one mistake-log row (`grammar` for fix, `clarity` for natural).
+Manual (real app): type "Is it work?" in TextEdit → a red dashed line under the whole sentence; card offers "Does it work?"; accept → the sentence is replaced. Type a correct but stiff sentence → blue dashed line with a more natural version.
 Live test (`LIVE_OPENROUTER=1 swift test --filter Live`): 5 sample sentences return sensible edits.
-Eval: run `score.py` for Haiku 5.5, GPT-6 Luna, DeepSeek V4 Flash → pick the main model.
+Eval: run `score.py` (including: on clean, natural sentences `rewrite` is `null` ≥ 90% of the time, decision 0007) for Haiku 5.5, GPT-6 Luna, DeepSeek V4 Flash → pick the main model.
 Exit: green + eval done.
 
 ## M5 — Wider app support + polish (3 days)
 
-Build: `AXManualAccessibility` / `AXEnhancedUserInterface` for Electron/Chromium; badge-only mode when bounds unavailable; global hotkey "check selection" for Google Docs; per-app exclusions; rewrite chip; cost display; app icon; release build reading key from Keychain only; "My mistakes…" window (list, filter by category, most-repeated view, Export CSV) + Settings toggle and "Delete all".
-Tests: full manual matrix above — every app gets layer 1, 2 or 3 and none gets nothing; excluded app → zero checks and zero mistake-log rows; accepting a fix via the hotkey popover and the rewrite chip both log a row; the exported CSV opens cleanly in Numbers.
+Build: `AXManualAccessibility` / `AXEnhancedUserInterface` for Electron/Chromium; badge-only mode when bounds unavailable; global hotkey "check selection" for Google Docs; per-app exclusions; on/off switch for "natural wording" rewrites; cost display; app icon; release build reading key from Keychain only; "My mistakes…" window (list, filter by category, most-repeated view, Export CSV) + Settings toggle and "Delete all".
+Tests: full manual matrix above — every app gets layer 1, 2 or 3 and none gets nothing; excluded app → zero checks and zero mistake-log rows; accepting a fix via the hotkey popover and accepting a sentence rewrite both log a row; the exported CSV opens cleanly in Numbers.
 Exit: one week of daily use; every false positive / miss logged into `eval/golden.jsonl`.
 
 ## Go / no-go for cancelling Grammarly

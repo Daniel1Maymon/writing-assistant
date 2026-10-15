@@ -26,7 +26,7 @@ Spec for a personal Grammarly replacement, built as a native macOS app. Main fea
 | Suggestion card | Click an underline → small popover with explanation + 1–3 replacements | Before → after diff. |
 | Accept | Click a replacement or press ⌥⏎ | Writes the fix into the field via Accessibility; falls back to select-range + paste. |
 | Dismiss / ignore always | "Dismiss", "Ignore rule", "Add to dictionary" | Stored locally; also sent to the checkers. |
-| Sentence rewrite | "Rewrite" chip on wordy/unclear sentences | One tighter version of the whole sentence. |
+| Sentence fix / natural rewrite | Dashed line under the whole sentence: red = the sentence is wrong as a whole ("Is it work?" → "Does it work?"), blue = correct but a more natural wording exists | From the AI model (tier 2). Click → same card, before → after sentence. Decision 0007. |
 | Floating badge | Small circle at the field's corner with issue count | Click to pause for this app. |
 | Menu-bar icon | On/off, per-app exclusions, dictionary, today's AI cost, My mistakes, Settings, Quit | Settings: API key (saved to Keychain), models, launch at login, mistake-log on/off + delete all. |
 | Mistake log | Every fix you accept is saved, so you can review your own mistakes later | See [Mistake log](#mistake-log). Local only. |
@@ -48,9 +48,9 @@ Everything runs in one Mac app process. There is no backend: the app calls OpenR
   bounds for range)                                │              │
         ▲                                          ▼              ▼
         │ accept fix                         Tier 1: local   Tier 2: OpenRouter
-        │                                    NSSpellChecker  (Haiku 5.5, fallback
- Overlay window ◄──── Merge + cache ◄──────── (+ Harper opt.)  GPT-6 Luna), JSON edits
- (underlines, card,   (offsets, dedupe,
+        │                                    Harper (LSP)    (Haiku 5.5, fallback
+ Overlay window ◄──── Merge + cache ◄──────── (fallback:       GPT-6 Luna), JSON edits
+ (underlines, card,   (offsets, dedupe,       NSSpellChecker)
   badge)               ignore list)
 ```
 
@@ -67,7 +67,7 @@ Only changed sentences reach the checkers.
 | Apply a fix | Set `kAXSelectedTextRangeAttribute` to the span, then set `kAXSelectedTextAttribute` to the replacement; fallback: select span → pasteboard → synthesize ⌘V → restore pasteboard |
 | Electron / Chrome web content | Set `AXManualAccessibility` (Electron) / `AXEnhancedUserInterface` (Chromium) on the app element so it exposes its text |
 | Sentence splitting | `NLTokenizer(unit: .sentence)` (NaturalLanguage framework) |
-| Tier 1 checks | `NSSpellChecker` with spelling + grammar — free, offline, built into macOS; optional Harper (Rust) via C FFI later |
+| Tier 1 checks | Harper (`harper-ls --stdio`, bundled in the app, spoken to over LSP): free, offline, ~5 ms per sentence. Fallback: `NSSpellChecker` spelling. Decision 0005 |
 | Secrets | `.env` in debug builds; Keychain in the installed app |
 | Launch at login | `SMAppService.mainApp.register()` |
 
@@ -79,7 +79,7 @@ Only changed sentences reach the checkers.
 2. **Segment.** `NLTokenizer` splits into sentences; hash each.
 3. **Diff.** Unchanged hashes keep suggestions; changed ones are dirty and their old suggestions dropped.
 4. **Debounce.** Tier 1 on dirty sentences after ~400 ms idle. Tier 2 only when a sentence looks finished (ends in `.?!` and caret left it) or after ~1.5 s idle.
-5. **Tier 1 – local.** `NSSpellChecker` spelling + grammar. Deterministic, free, exact ranges.
+5. **Tier 1 – local.** Harper spelling + grammar (fallback `NSSpellChecker`). Deterministic, free, exact ranges.
 6. **Tier 2 – OpenRouter.** Dirty sentence + one sentence of context either side. Asks for clarity, conciseness, and grammar the local checker misses. Structured JSON out.
 7. **Merge.** Map to absolute offsets, drop LLM edits overlapping a tier-1 fix, drop ignored items, render.
 8. **Cache.** Keyed by sentence hash (+ ignore-list version), in memory + small on-disk SQLite.
@@ -93,8 +93,11 @@ Never trust the model with character offsets. It quotes the exact original subst
   {"original": "in order to", "replacement": "to",
    "category": "concise", "reason": "Shorter, same meaning"}
 ],
- "rewrite": null}
+ "rewrite": {"text": "Does it work?", "kind": "fix",
+             "reason": "Questions with a main verb need \"does\""}}
 ```
+
+`rewrite` is `null` when the sentence is already fine. `kind` is `fix` (wrong as a whole) or `natural` (correct, but a native speaker would say it differently). Decision [0007](docs/decisions/0007-sentence-fixes-and-natural-rewrites.md).
 
 ### OpenRouter call
 
@@ -164,7 +167,7 @@ A personal record of your mistakes, for learning. Decision: [0002](docs/decision
 - **Apps with poor AX support** (some Electron, Java, terminals): bounds may be missing → layer 2 (badge list), or layer 3 if text isn't readable at all.
 - **Scrolling / window moves:** re-query bounds on move/resize/scroll; hide overlay while moving.
 
-## Open decision
+## Open decision (resolved: Harper, decision 0005)
 
 Tier 1: built-in `NSSpellChecker` (zero setup) vs adding Harper (stronger grammar rules, needs Rust FFI). Default: NSSpellChecker first, Harper only if the eval shows gaps.
 
@@ -189,4 +192,6 @@ If the M0 re-probe inside a real `.app` gives the same result, tier 1 is spellin
 - **"teh" is caught in a sentence but not alone.** The checker uses its context.
 - Checker language was `en_GB` with automatic language detection on. Forcing `"en"` in `checkGrammar(of:…)` returned nothing for any sample.
 
-**Conclusion:** tier 1 = spelling plus a little grammar. It can't be the main grammar checker. Grammar falls mainly to tier 2 (LLM), and Harper should be evaluated at the start of M2 rather than waiting for the M4 eval. M2's first XCUITest stays the spelling example.
+**Resolved 2026-10-15:** Harper is tier 1, run as a bundled `harper-ls` helper over stdio. See [0005](docs/decisions/0005-harper-tier-1.md).
+
+**Conclusion of the probe:** NSSpellChecker = spelling plus a little grammar. It can't be the main grammar checker. Grammar falls mainly to tier 2 (LLM), and Harper should be evaluated at the start of M2 rather than waiting for the M4 eval. M2's first XCUITest stays the spelling example.

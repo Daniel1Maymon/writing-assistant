@@ -21,6 +21,8 @@ targets:
     platform: macOS
     sources:
       - App
+      - AXKit
+      - Shared
     dependencies:
       - package: Core
     info:
@@ -50,3 +52,24 @@ targets:
           WA_ENV_PATH: $(SRCROOT)/.env
         Release:
           WA_ENV_PATH: ""
+
+  # Test target for scripts/m2-check.py (decision 0006). Not installed.
+  FixtureApp:
+    type: application
+    platform: macOS
+    sources:
+      - Fixtures/FixtureApp
+      - Shared
+    info:
+      path: Fixtures/FixtureApp/Info.plist
+      properties:
+        CFBundleDisplayName: WA Fixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielmaymon.WritingAssistantFixture
+        PRODUCT_NAME: FixtureApp
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_DEBUG_DYLIB: NO
