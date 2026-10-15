@@ -44,7 +44,7 @@ scripts/install.sh --probe    # same, and run the spell-checker probe at launch
 ## Next steps
 
 1. M5: wider app support + polish (PLAN.md).
-2. Waiting on the user: allow Haiku 5.5 and GPT-6 Luna in the OpenRouter guardrail, then rerun `eval/score.py` for all three (decision 0011). Until then the `.env` fallback model fails.
+2. The OpenRouter guardrail allows only 4 models (the user's choice). Main is DeepSeek V4 Flash, fallback is MiniMax M3 (decisions 0011, 0012).
 3. Open: tier-2 p95 latency is 3.9 s against a 2 s target.
 4. Open item from M0: test 4 (the "Open System Settings…" button).
 

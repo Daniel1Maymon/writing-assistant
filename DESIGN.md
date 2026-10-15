@@ -109,8 +109,7 @@ Never trust the model with character offsets. It quotes the exact original subst
 | Role | Model | Price / 1M tokens in / out |
 | --- | --- | --- |
 | Main | `deepseek/deepseek-v4-flash` | $0.09 / $0.18 |
-| Fallback | `openai/gpt-6-luna` (blocked by the account's OpenRouter guardrail for now) | $0.10 / $0.50 |
-| Candidate, not yet evaluated | `anthropic/claude-haiku-5.5` (blocked by the same guardrail) | $0.10 / $0.50 |
+| Fallback | `minimax/minimax-m3` ([0012](docs/decisions/0012-minimax-m3-fallback.md)) | $0.30 / $1.20 |
 
 The M4 eval picked DeepSeek V4 Flash: 98% of mistakes fixed, 0% false positives, p95 3.9 s ([0011](docs/decisions/0011-deepseek-main-model-after-eval.md)).
 
