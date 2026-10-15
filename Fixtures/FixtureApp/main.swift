@@ -78,6 +78,9 @@ final class Fixture: NSObject, NSApplicationDelegate {
                                          "selection": [selection.location, selection.length]]
             let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
             return String(decoding: data, as: UTF8.self)
+        case "select":
+            let target = editor(command["field"] as? String)
+            target.setSelectedRange(NSRange(location: command["location"] as? Int ?? 0, length: command["length"] as? Int ?? 0))
         case "focus":
             _ = editor(command["field"] as? String)
         case "move":

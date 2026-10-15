@@ -139,6 +139,7 @@ def main():
     db = os.path.join(work, "mistakes.sqlite")
     launch_fixture()
     app(cmd="resetIgnore")
+    app(cmd="setTierTwo", enabled=False)  # no model calls: these checks are about tier 1 and the card
     app(cmd="setLog", enabled=True, path=db)
 
     # 1. Accept through Accessibility.
@@ -202,6 +203,7 @@ def main():
     s, _ = wait_for(flagged("teh"), 2.0)
     before_restart = not flagged("zorblax")(s)
     restart_app()
+    app(cmd="setTierTwo", enabled=False)
     app(cmd="setLog", enabled=True, path=db)
     fixture(cmd="focus", field="text")
     fixture(cmd="set", field="text", text="Zorblax came with teh dog.")
@@ -262,6 +264,7 @@ def main():
 
     app(cmd="setLog", enabled=True, path="")
     app(cmd="resetIgnore")
+    app(cmd="setTierTwo", enabled=True)
     subprocess.run(["pkill", "-x", "FixtureApp"])
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

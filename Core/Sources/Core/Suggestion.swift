@@ -9,6 +9,12 @@ public enum SuggestionSource: String, Codable, Sendable {
     case local, llm
 }
 
+/// A sentence-wide suggestion from the model (decision 0007): `fix` when the sentence is wrong as a whole,
+/// `natural` when it's correct but a native speaker would say it differently.
+public enum RewriteKind: String, Codable, Sendable {
+    case fix, natural
+}
+
 /// One fix for one span of a sentence. Schema: DESIGN.md → Suggestion record.
 public struct Suggestion: Equatable, Sendable {
     public let id: String
@@ -21,9 +27,12 @@ public struct Suggestion: Equatable, Sendable {
     public let replacements: [String]
     public let source: SuggestionSource
     public let ruleId: String?
+    /// Set only for a whole-sentence rewrite.
+    public let rewrite: RewriteKind?
 
     public init(sentenceHash: String, range: NSRange, original: String, category: SuggestionCategory,
-                message: String, replacements: [String], source: SuggestionSource, ruleId: String? = nil) {
+                message: String, replacements: [String], source: SuggestionSource, ruleId: String? = nil,
+                rewrite: RewriteKind? = nil) {
         self.id = Suggestion.makeId(sentenceHash: sentenceHash, range: range, replacement: replacements.first ?? "")
         self.sentenceHash = sentenceHash
         self.range = range
@@ -33,6 +42,7 @@ public struct Suggestion: Equatable, Sendable {
         self.replacements = replacements
         self.source = source
         self.ruleId = ruleId
+        self.rewrite = rewrite
     }
 
     static func makeId(sentenceHash: String, range: NSRange, replacement: String) -> String {
@@ -120,14 +130,41 @@ public struct IgnoreList: Codable, Equatable, Sendable {
 }
 
 /// Local results win: an LLM suggestion that overlaps a local one is dropped. Result is sorted by position.
+/// Local and model suggestions for one sentence. A model edit on the same span as a local one, or a span that
+/// contains it, absorbs it: the model's fix comes first, the local options follow (decision 0008). A model edit
+/// that only partly overlaps a local one is dropped. Rewrites cover the whole sentence and never compete.
 public func merge(local: [Suggestion], llm: [Suggestion], ignore: IgnoreList = IgnoreList()) -> [Suggestion] {
-    let llmKept = llm.filter { candidate in
-        !local.contains { NSIntersectionRange($0.range, candidate.range).length > 0 }
+    var absorbed = Set<String>()
+    var llmKept: [Suggestion] = []
+    for candidate in llm {
+        let touching = candidate.rewrite != nil ? [] : local.filter { NSIntersectionRange($0.range, candidate.range).length > 0 }
+        if touching.isEmpty {
+            llmKept.append(candidate)
+        } else if touching.allSatisfy({ NSIntersectionRange($0.range, candidate.range) == $0.range }) {
+            absorbed.formUnion(touching.map(\.id))
+            llmKept.append(candidate.absorbing(touching))
+        }
     }
     var seen = Set<String>()
-    return (local + llmKept)
+    return (local.filter { !absorbed.contains($0.id) } + llmKept)
         .filter { !ignore.hides($0) && seen.insert($0.id).inserted }
         .sorted { ($0.range.location, $0.range.length) < ($1.range.location, $1.range.length) }
+}
+
+extension Suggestion {
+    /// This model suggestion with the local ones inside its span as extra options, expanded to its span.
+    func absorbing(_ inside: [Suggestion]) -> Suggestion {
+        let ns = original as NSString
+        var options = Array(replacements.prefix(1))
+        for local in inside.sorted(by: { $0.range.location < $1.range.location }) {
+            let sub = NSRange(location: local.range.location - range.location, length: local.range.length)
+            options += local.replacements.map { ns.replacingCharacters(in: sub, with: $0) }
+        }
+        var seen = Set<String>()
+        return Suggestion(sentenceHash: sentenceHash, range: range, original: original, category: category,
+                          message: message, replacements: Array(options.filter { seen.insert($0).inserted }.prefix(3)),
+                          source: source, ruleId: inside.first?.ruleId)
+    }
 }
 
 extension IgnoreList {

@@ -72,6 +72,7 @@ def main():
     subprocess.run(["xcodebuild", "-project", os.path.join(ROOT, "WritingAssistant.xcodeproj"), "-scheme", "FixtureApp",
                     "-configuration", "Debug", "-derivedDataPath", DERIVED, "-quiet", "build"],
                    check=True, env=env, stderr=subprocess.DEVNULL)
+    ask("/tmp/wa-debug.sock", json.dumps({"cmd": "setTierTwo", "enabled": False}))  # tier 1 only, no model calls
     subprocess.run(["pkill", "-x", "FixtureApp"])
     time.sleep(0.5)
     subprocess.run(["open", "-n", FIXTURE], check=True)
@@ -147,6 +148,7 @@ def main():
     check(6, "harper-ls killed → restarted, still underlines", took is not None and s["counters"]["harperStarts"] > starts,
           f"starts {starts} → {s['counters']['harperStarts']}, fallback checks {s['counters']['fallbackChecks']}")
 
+    ask("/tmp/wa-debug.sock", json.dumps({"cmd": "setTierTwo", "enabled": True}))
     subprocess.run(["pkill", "-x", "FixtureApp"])
     print(f"\n{sum(results)}/{len(results)} passed")
     return 0 if all(results) else 1

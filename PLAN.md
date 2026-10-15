@@ -201,10 +201,28 @@ Tests (stubbed):
 - Rewrite (decision 0007): `rewrite` with kind `fix` → one sentence-wide suggestion (red); kind `natural` → one sentence-wide suggestion (blue); `null` → none; a rewrite equal to the sentence → dropped; malformed `rewrite` → edits still used.
 - Merge, same word (decision 0008): Harper `dont` → [don't, dent, don] plus model `dont` → doesn't → one suggestion [doesn't, don't, dent], model category and reason, Harper's rule id. A model span containing the Harper span → same. Partial overlap → model edit dropped.
 - Accepting a rewrite replaces the whole sentence, removes that sentence's word-level suggestions, and logs exactly one mistake-log row (`grammar` for fix, `clarity` for natural).
+- When a sentence is ready (decision 0010): ends in `.?!` and the caret is not inside it (caret right after the final `.` counts as outside) → ready; no final punctuation → ready only when the caret is outside the sentence and not touching it.
+- Same sentence seen again (typed, deleted, retyped) → no second request (in-memory cache by sentence hash).
+- A failed request is retried at most twice per sentence; the next request after a failure puts the fallback model first.
+- Cost: `usage.cost` from each response is added to today's total; a new day resets the count and the cost.
+- Code-fenced JSON (```json … ```) from the model is still read.
+- Hit-testing and ⌥⏎ prefer a word-level suggestion over the sentence-wide one when both cover the caret or click.
+- Keychain: the debug socket `keychainSelfTest` saves, reads back and deletes a dummy item under a test account (never the real key).
+Real app, automated (`scripts/m4-real-app.py`, TextEdit, real clicks and ⌥⏎ posted by the debug app): "She dont know. Is it work?" → "dont" offers doesn't first; ⌥⏎ → "She doesn't know."; click the dashed line → card → click the fix → "Does it work?".
 Manual (real app): type "She dont know." → the card offers "doesn't" first and "don't" second; ⌥⏎ → "She doesn't know." Type "Is it work?" in TextEdit → a red dashed line under the whole sentence; card offers "Does it work?"; accept → the sentence is replaced. Type a correct but stiff sentence → blue dashed line with a more natural version.
-Live test (`LIVE_OPENROUTER=1 swift test --filter Live`): 5 sample sentences return sensible edits.
+Live test: replaced by the real calls in `scripts/m4-check.py`, `scripts/m4-real-app.py` and `eval/score.py` (decision 0011).
 Eval: run `score.py` (including: on clean, natural sentences `rewrite` is `null` ≥ 90% of the time, decision 0007) for Haiku 5.5, GPT-6 Luna, DeepSeek V4 Flash → pick the main model.
 Exit: green + eval done.
+
+**M4 result (2026-10-15):**
+- Core tests 87/87 (unit tests).
+- `scripts/m4-check.py` 11/11 on FixtureApp, through the installed app with real OpenRouter calls. Three of the last four runs passed; one run missed check 7 (a slow answer). The script now waits until the app is watching the text view, because after a restart the app could miss the first focus event.
+- `scripts/m4-real-app.py` 4/4 in TextEdit, with real clicks and ⌥⏎: "dont" → "doesn't" first; clicking the dashed line and then the fix → "Does it work?".
+- M2/M3 regression: `m2-check` 6/6, `m3-check` 12/12.
+- Overlay and card rendered to PNG (`snapshot`) and inspected: red dashed line under the sentence; card shows "Fix the whole sentence", the struck-through original and the fix.
+- Prompt: "She dont know." first gave "don't" in the app; after "fix the agreement, not only the spelling", 18/18 direct calls gave "doesn't" (grammar).
+- Eval: DeepSeek V4 Flash only. Haiku 5.5 and GPT-6 Luna are blocked by the account's OpenRouter guardrail. Results and choice are in decision 0011: 98% fixed, 0% false positives, rewrite null 100% on clean sentences, p95 3.9 s (misses the 2 s target), ≈ $0.05 per 1,000 sentences.
+- Not done: the manual stiff-sentence → blue line check. DeepSeek almost never suggests natural rewrites (0 of 50 clean sentences), so it's only covered by unit tests.
 
 ## M5 — Wider app support + polish (3 days)
 

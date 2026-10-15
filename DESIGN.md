@@ -102,17 +102,17 @@ Never trust the model with character offsets. It quotes the exact original subst
 ### OpenRouter call
 
 - `POST https://openrouter.ai/api/v1/chat/completions` (OpenAI-compatible) via `URLSession`.
-- Body: `models: [OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL]`, `provider: {sort: "latency"}`, `response_format: {type: "json_schema", ...}`, `max_tokens: 300`, temperature 0. For GPT-6 Luna use the lowest reasoning effort.
+- Body: `models: [OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL]`, `provider: {sort: "latency"}`, `response_format: {type: "json_schema", ...}`, `max_tokens: 300`, temperature 0. Reasoning off (`reasoning: {enabled: false}`): with it on, DeepSeek spent the whole 300-token budget thinking and returned nothing.
 - Short fixed system prompt (cacheable).
 - Cancel the in-flight request if its sentence changes again.
 
 | Role | Model | Price / 1M tokens in / out |
 | --- | --- | --- |
-| Main | `anthropic/claude-haiku-5.5` | $0.10 / $0.50 |
-| Fallback | `openai/gpt-6-luna` | $0.10 / $0.50 |
-| Budget experiment | `deepseek/deepseek-v4-flash` | $0.09 / $0.18 |
+| Main | `deepseek/deepseek-v4-flash` | $0.09 / $0.18 |
+| Fallback | `openai/gpt-6-luna` (blocked by the account's OpenRouter guardrail for now) | $0.10 / $0.50 |
+| Candidate, not yet evaluated | `anthropic/claude-haiku-5.5` (blocked by the same guardrail) | $0.10 / $0.50 |
 
-During development, `.env` uses DeepSeek V4 Flash ([0004](docs/decisions/0004-dev-model-deepseek.md)). The M4 eval picks the final main model.
+The M4 eval picked DeepSeek V4 Flash: 98% of mistakes fixed, 0% false positives, p95 3.9 s ([0011](docs/decisions/0011-deepseek-main-model-after-eval.md)).
 
 ### Suggestion record
 

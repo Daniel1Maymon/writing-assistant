@@ -48,6 +48,10 @@ final class CardController {
         panel.orderFrontRegardless()
     }
 
+    #if DEBUG
+    var snapshotPNG: Data? { panel.isVisible ? panel.contentView?.pngData() : nil }
+    #endif
+
     func hide() {
         suggestion = nil
         panel.orderOut(nil)
@@ -84,7 +88,28 @@ struct CardView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if suggestion.replacements.isEmpty {
+            if let kind = suggestion.rewrite {
+                Text(kind == .fix ? "Fix the whole sentence" : "More natural")
+                    .font(.caption.bold())
+                    .foregroundStyle(kind == .fix ? Color.red : Color.blue)
+                Text(suggestion.original)
+                    .strikethrough()
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { perform(.accept(0)) } label: {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(suggestion.replacements.first ?? "").bold()
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Text("⌥⏎").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+            } else if suggestion.replacements.isEmpty {
                 Text(suggestion.original).strikethrough().font(.body)
                 Text("No suggestion").font(.caption).foregroundStyle(.secondary)
             } else {
@@ -111,8 +136,12 @@ struct CardView: View {
             Divider()
             HStack(spacing: 12) {
                 Button("Dismiss") { perform(.dismiss) }
-                Button("Ignore rule") { perform(.ignoreRule) }
-                    .disabled(suggestion.ruleId == nil)
+                if suggestion.rewrite == .natural {
+                    Button("Stop natural rewrites") { perform(.ignoreRule) }
+                } else if suggestion.rewrite == nil {
+                    Button("Ignore rule") { perform(.ignoreRule) }
+                        .disabled(suggestion.ruleId == nil)
+                }
                 if suggestion.category == .spelling {
                     Button("Add to dictionary") { perform(.addToDictionary) }
                 }
@@ -121,7 +150,7 @@ struct CardView: View {
             .font(.caption)
         }
         .padding(12)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: suggestion.rewrite == nil ? 300 : 380, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 }

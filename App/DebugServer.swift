@@ -68,6 +68,22 @@ enum DebugServer {
             // What the focused element exposes, for adding support for new kinds of fields.
             guard let element = controller.focusedElement else { return reply(["ok": false]) }
             return reply(["ok": true, "tree": dump(element, depth: command["depth"] as? Int ?? 3)])
+        case "setTierTwo":
+            // Lets m2/m3 checks run without model calls; on again restores the configured key.
+            AppState.shared?.setTierTwo(enabled: command["enabled"] as? Bool ?? true)
+            return reply(["ok": true, "enabled": controller.tierTwo != nil])
+        case "keychainSelfTest":
+            // A dummy item under its own account: never the real key.
+            let account = "selftest"
+            let value = "dummy-\(Int.random(in: 1000...9999))"
+            let saved = KeychainStore.save(value, account: account)
+            let readBack = KeychainStore.read(account) == value
+            let deleted = KeychainStore.delete(account) && KeychainStore.read(account) == nil
+            return reply(["ok": saved && readBack && deleted, "saved": saved, "readBack": readBack, "deleted": deleted])
+        case "snapshot":
+            // Renders the overlay and the card to PNG files, since screen capture is blocked on this Mac.
+            let dir = command["dir"] as? String ?? NSTemporaryDirectory()
+            return reply(["ok": true, "files": controller.snapshot(to: URL(fileURLWithPath: dir))])
         case "resetIgnore":
             controller.resetIgnore()
             return reply(["ok": true])
@@ -114,7 +130,8 @@ enum DebugServer {
             let s = item.placed.suggestion
             return [
                 "id": s.id, "original": s.original, "category": s.category.rawValue, "ruleId": s.ruleId ?? "",
-                "replacements": s.replacements, "sentenceHash": s.sentenceHash,
+                "replacements": s.replacements, "sentenceHash": s.sentenceHash, "rewrite": s.rewrite?.rawValue ?? "",
+                "source": s.source.rawValue, "message": s.message,
                 "range": [item.placed.range.location, item.placed.range.length],
                 "rect": [item.rect.minX, item.rect.minY, item.rect.width, item.rect.height],
             ]
@@ -133,6 +150,11 @@ enum DebugServer {
             // Debug builds only, over a user-only socket; never logged (CLAUDE.md).
             "text": (element?.isSecure ?? true) ? "" : (element?.value ?? ""),
         ]
+        if let tierTwo = controller.tierTwo {
+            let counters = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(tierTwo.counters))) ?? [:]
+            state["tier2"] = ["counters": counters, "inFlight": tierTwo.inFlightCount, "capReached": tierTwo.capReached,
+                              "requestsToday": tierTwo.ledger.requests, "costToday": tierTwo.ledger.cost]
+        }
         if let caret = element?.selectedRange {
             state["selection"] = [caret.location, caret.length]
         }

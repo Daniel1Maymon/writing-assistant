@@ -8,6 +8,7 @@ final class OverlayController {
         /// AX screen coordinates (top-left origin).
         let rect: CGRect
         let category: SuggestionCategory
+        var rewrite: RewriteKind? = nil
     }
 
     private let panel: NSPanel
@@ -31,11 +32,16 @@ final class OverlayController {
         panel.setFrame(frame, display: false)
         view.marks = marks.map { mark in
             let r = Self.cocoa(mark.rect)
-            return (CGRect(x: r.minX - frame.minX, y: r.minY - frame.minY, width: r.width, height: r.height), mark.category)
+            return (CGRect(x: r.minX - frame.minX, y: r.minY - frame.minY, width: r.width, height: r.height), mark.category,
+                    mark.rewrite)
         }
         view.needsDisplay = true
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
+
+    #if DEBUG
+    var snapshotPNG: Data? { panel.isVisible ? view.pngData() : nil }
+    #endif
 
     func hide() {
         view.marks = []
@@ -50,10 +56,21 @@ final class OverlayController {
 }
 
 final class SquiggleView: NSView {
-    var marks: [(rect: CGRect, category: SuggestionCategory)] = []
+    var marks: [(rect: CGRect, category: SuggestionCategory, rewrite: RewriteKind?)] = []
 
     override func draw(_ dirtyRect: NSRect) {
-        for mark in marks {
+        // Sentence-wide marks first, so word squiggles stay on top (decision 0007).
+        for mark in marks where mark.rewrite != nil {
+            (mark.rewrite == .fix ? NSColor.systemRed : NSColor.systemBlue).withAlphaComponent(0.8).setStroke()
+            let path = NSBezierPath()
+            path.lineWidth = 1.5
+            path.setLineDash([4, 3], count: 2, phase: 0)
+            let y = max(mark.rect.minY - 1, 1)
+            path.move(to: CGPoint(x: mark.rect.minX, y: y))
+            path.line(to: CGPoint(x: mark.rect.maxX, y: y))
+            path.stroke()
+        }
+        for mark in marks where mark.rewrite == nil {
             color(for: mark.category).setStroke()
             let path = NSBezierPath()
             path.lineWidth = 1.5
@@ -79,3 +96,14 @@ final class SquiggleView: NSView {
         }
     }
 }
+
+#if DEBUG
+extension NSView {
+    /// What the view draws, as a PNG (debug snapshots only).
+    func pngData() -> Data? {
+        guard bounds.width > 0, bounds.height > 0, let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: rep)
+        return rep.representation(using: .png, properties: [:])
+    }
+}
+#endif

@@ -46,6 +46,12 @@ final class CheckController {
         didSet { mistakeLog = nil }
     }
     private var mistakeLog: MistakeLog?
+    /// Tier 2 (OpenRouter). Nil until a key is configured.
+    private(set) var tierTwo: TierTwoScheduler?
+    private var tierTwoTimer: Timer?
+    /// Called when today's AI use changes, for the menu.
+    var onUsageChange: ((UsageLedger, Bool) -> Void)?
+    static let ledgerKey = "tierTwoLedger"
 
     init(ignoreURL: URL = CheckController.defaultIgnoreURL) {
         self.ignoreURL = ignoreURL
@@ -77,6 +83,40 @@ final class CheckController {
         }
     }
 
+    /// Starts (or replaces) tier 2. `send` nil turns it off.
+    func configureTierTwo(models: [String], cap: Int, send: TierTwoScheduler.Send?) {
+        tierTwo = nil
+        tierTwoTimer?.invalidate()
+        tierTwoTimer = nil
+        guard let send else { return }
+        let saved = UserDefaults.standard.data(forKey: Self.ledgerKey)
+            .flatMap { try? JSONDecoder().decode(UsageLedger.self, from: $0) } ?? UsageLedger()
+        let scheduler = TierTwoScheduler(models: models, cap: cap, ledger: saved, send: send,
+                                         log: { line in log.info("\(line, privacy: .public)") })
+        scheduler.onResult = { [weak self] sentence, found in
+            guard let self else { return }
+            document.storeLLM(found, for: sentence.hash)
+            redraw()
+        }
+        scheduler.onLedgerChange = { [weak self, weak scheduler] ledger in
+            UserDefaults.standard.set(try? JSONEncoder().encode(ledger), forKey: Self.ledgerKey)
+            self?.onUsageChange?(ledger, scheduler?.capReached ?? false)
+        }
+        tierTwo = scheduler
+        onUsageChange?(scheduler.ledger, scheduler.capReached)
+        // The caret can leave a sentence without any text change (a click elsewhere): look again every second.
+        tierTwoTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateTierTwo() }
+        }
+    }
+
+    private func updateTierTwo() {
+        guard let tierTwo, let element, !element.isSecure else { return }
+        let caret = element.selectedRange?.location
+        let document = document
+        tierTwo.update(sentences: document.sentences, caret: caret) { document.hasLLMResults(for: $0) }
+    }
+
     var focusedApp: NSRunningApplication? { tracker.app }
     var focusedElement: AXElement? { element }
 
@@ -88,6 +128,7 @@ final class CheckController {
             card.hide()
             element = tracker.focused
             document = DocumentState()
+            tierTwo?.update(sentences: [], caret: nil) { _ in true }
             redraw()
             schedule(after: .zero)
         case .valueChanged:
@@ -95,6 +136,7 @@ final class CheckController {
             // Re-split right away so unchanged sentences keep their underlines in the right place.
             if let element, !element.isSecure, let text = element.value {
                 _ = document.update(text: text)
+                updateTierTwo()
             }
             redraw()
             schedule(after: Self.debounceDelay)
@@ -139,6 +181,7 @@ final class CheckController {
             document.store(found, for: sentence.hash)
             counters.sentencesChecked += 1
         }
+        updateTierTwo()
         counters.harperStarts = await harper.starts
         counters.completedChecks += 1
         counters.lastDirtyCount = dirty.count
@@ -166,7 +209,9 @@ final class CheckController {
             let clipped = rect.intersection(visible)
             return clipped.isNull || clipped.width <= 0 ? nil : (placed, clipped)
         }
-        overlay.show(area: visible, marks: drawn.map { .init(rect: $0.rect, category: $0.placed.suggestion.category) })
+        overlay.show(area: visible, marks: drawn.map {
+            .init(rect: $0.rect, category: $0.placed.suggestion.category, rewrite: $0.placed.suggestion.rewrite)
+        })
     }
 }
 
@@ -184,15 +229,23 @@ extension CheckController: CardActions {
 
     private func clicked(at cocoaPoint: CGPoint) {
         guard !card.contains(cocoaPoint: cocoaPoint) else { return }
-        // The squiggle sits just under the text, so give the hit area a little room below.
+        // The squiggle sits just under the text, so give the hit area a little room below. A word beats its
+        // sentence; the sentence-wide line is hit only along the bottom of the sentence.
         let hit = drawn.first { item in
-            OverlayController.cocoa(item.rect).insetBy(dx: -1, dy: -3).contains(cocoaPoint)
+            item.placed.suggestion.rewrite == nil && OverlayController.cocoa(item.rect).insetBy(dx: -1, dy: -3).contains(cocoaPoint)
+        } ?? drawn.first { item in
+            item.placed.suggestion.rewrite != nil && OverlayController.cocoa(Self.rewriteBand(item.rect)).contains(cocoaPoint)
         }
         if let hit {
             card.show(hit.placed.suggestion, under: hit.rect)
         } else {
             card.hide()
         }
+    }
+
+    /// Where the dashed sentence line can be clicked (AX coordinates).
+    static func rewriteBand(_ rect: CGRect) -> CGRect {
+        CGRect(x: rect.minX - 1, y: rect.maxY - 6, width: rect.width + 2, height: 10)
     }
 
     /// ⌥⏎: returns true when it accepted something, so the key is swallowed.
@@ -210,9 +263,10 @@ extension CheckController: CardActions {
     func suggestionAtCaret() -> PlacedSuggestion? {
         guard let element, NSWorkspace.shared.frontmostApplication?.processIdentifier == tracker.app?.processIdentifier,
               let caret = element.selectedRange, caret.length == 0 else { return nil }
-        return document.placed(ignoring: ignore).first {
+        let here = document.placed(ignoring: ignore).filter {
             caret.location >= $0.range.location && caret.location <= NSMaxRange($0.range)
         }
+        return here.first { $0.suggestion.rewrite == nil } ?? here.first
     }
 
     func accept(_ suggestion: Suggestion, replacementIndex: Int) {
@@ -300,6 +354,18 @@ extension CheckController: CardActions {
     }
 
     func suggestion(id: String) -> Suggestion? { placed(id: id)?.suggestion }
+
+    #if DEBUG
+    /// Writes overlay.png and card.png (when shown) into `dir`; returns the paths written.
+    func snapshot(to dir: URL) -> [String] {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return [("overlay.png", overlay.snapshotPNG), ("card.png", card.snapshotPNG)].compactMap { name, data in
+            let url = dir.appendingPathComponent(name)
+            guard let data, (try? data.write(to: url)) != nil else { return nil }
+            return url.path
+        }
+    }
+    #endif
 
     var cardSuggestionId: String? { card.isVisible ? card.suggestion?.id : nil }
 }

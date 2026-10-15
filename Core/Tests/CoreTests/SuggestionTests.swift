@@ -62,14 +62,56 @@ private func suggestion(_ sentence: Sentence, _ range: NSRange, _ replacement: S
 @Suite struct MergeTests {
     let sentence = Sentence(range: NSRange(location: 0, length: 0), text: "Teh cat recieve the mail in order to read.")
 
-    @Test func overlappingLLMSuggestionDroppedOthersKeptAndSorted() {
+    @Test func partlyOverlappingLLMSuggestionDroppedOthersKeptAndSorted() {
         let local = suggestion(sentence, NSRange(location: 8, length: 7), "receive", category: .spelling)
-        let overlapping = suggestion(sentence, NSRange(location: 4, length: 11), "cat receives", source: .llm)
+        let partial = suggestion(sentence, NSRange(location: 12, length: 7), "ive thee", source: .llm)  // "ieve th"
         let separate = suggestion(sentence, NSRange(location: 25, length: 11), "to", category: .concise, source: .llm)
         let first = suggestion(sentence, NSRange(location: 0, length: 3), "The", category: .spelling)
 
-        let result = merge(local: [local, first], llm: [separate, overlapping])
+        let result = merge(local: [local, first], llm: [separate, partial])
         #expect(result.map(\.replacements[0]) == ["The", "receive", "to"])
+    }
+
+    // Decision 0008: "She dont know." → "doesn't" first, Harper's options after.
+    @Test func sameSpanLLMFixComesFirstWithLocalOptionsAfter() {
+        let she = Sentence(range: NSRange(location: 0, length: 0), text: "She dont know.")
+        let harper = Suggestion(sentenceHash: she.hash, range: NSRange(location: 4, length: 4), original: "dont",
+                                category: .spelling, message: "Spelling", replacements: ["don't", "dent", "don"],
+                                source: .local, ruleId: "harper.Spell")
+        let model = Suggestion(sentenceHash: she.hash, range: NSRange(location: 4, length: 4), original: "dont",
+                               category: .grammar, message: "Use doesn't with she", replacements: ["doesn't"], source: .llm)
+        let result = merge(local: [harper], llm: [model])
+        #expect(result.count == 1)
+        #expect(result[0].replacements == ["doesn't", "don't", "dent"])
+        #expect(result[0].category == .grammar)
+        #expect(result[0].message == "Use doesn't with she")
+        #expect(result[0].ruleId == "harper.Spell")
+        #expect(result[0].range == NSRange(location: 4, length: 4))
+    }
+
+    @Test func containingLLMSpanAbsorbsLocalAndExpandsItsOptions() {
+        let she = Sentence(range: NSRange(location: 0, length: 0), text: "She dont know.")
+        let harper = Suggestion(sentenceHash: she.hash, range: NSRange(location: 4, length: 4), original: "dont",
+                                category: .spelling, message: "Spelling", replacements: ["don't", "don't"],
+                                source: .local, ruleId: "harper.Spell")
+        let model = Suggestion(sentenceHash: she.hash, range: NSRange(location: 0, length: 8), original: "She dont",
+                               category: .grammar, message: "Agreement", replacements: ["She doesn't"], source: .llm)
+        let result = merge(local: [harper], llm: [model])
+        #expect(result.count == 1)
+        #expect(result[0].replacements == ["She doesn't", "She don't"])
+        #expect(result[0].range == NSRange(location: 0, length: 8))
+        #expect(result[0].ruleId == "harper.Spell")
+    }
+
+    @Test func rewriteNeverCompetesWithWordFixes() {
+        let local = suggestion(sentence, NSRange(location: 8, length: 7), "receive", category: .spelling)
+        let rewrite = Suggestion(sentenceHash: sentence.hash, range: NSRange(location: 0, length: 42), original: sentence.text,
+                                 category: .grammar, message: "Whole", replacements: ["The cat receives the mail to read."],
+                                 source: .llm, ruleId: "llm.rewrite.fix", rewrite: .fix)
+        let result = merge(local: [local], llm: [rewrite])
+        #expect(result.count == 2)
+        #expect(result.contains(local))
+        #expect(result.contains(rewrite))
     }
 
     @Test func ignoreListRemovesRulesDismissedAndDictionaryWords() {

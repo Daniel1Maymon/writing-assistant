@@ -1,4 +1,4 @@
-# Handoff — Writing Assistant (as of 2026-10-15, after M3)
+# Handoff — Writing Assistant (as of 2026-10-15, after M4)
 
 Read this first, then `CLAUDE.md` (standing rules), `DESIGN.md` (what/why), `PLAN.md` (milestones + tests), and `docs/decisions/`.
 
@@ -20,7 +20,8 @@ A personal Grammarly replacement: a native macOS menu-bar app (Swift) that under
 | **M1 core logic: done** | `Core/Sources/Core/` (Sentence, Suggestion, LRUCache, MistakeLog) | 43/43 tests, 95.8% line coverage |
 | **M2 Harper + underlines: done** | `App/`, `AXKit/`, decisions 0005–0006 | `scripts/m2-check.py` 6/6 + manual in TextEdit |
 | **M3 card, accept, ⌥⏎, ignore, dictionary: done** | `App/Card.swift`, `App/Applier.swift`, decisions 0008–0009 | `scripts/m3-check.py` 12/12; real clicks/⌥⏎ via `scripts/real-app-check.py` in TextEdit, Notes, Mail, Messages |
-| Git repo | `.gitignore` | Committed per milestone (M0–M3) |
+| **M4 OpenRouter tier 2: done** | `Core/Sources/Core/TierTwo*.swift`, `App/OpenRouterTransport.swift`, `eval/`, decisions 0010–0011 | `scripts/m4-check.py` 11/11, `scripts/m4-real-app.py` 4/4 in TextEdit, `eval/score.py` (DeepSeek: 98% fixed, 0% false positives) |
+| Git repo | `.gitignore` | Committed per milestone (M0–M4) |
 
 ## How to build
 
@@ -42,8 +43,10 @@ scripts/install.sh --probe    # same, and run the spell-checker probe at launch
 
 ## Next steps
 
-1. M4: OpenRouter tier 2. Per-sentence model fixes, whole-sentence fixes and natural rewrites (decision 0007), and the merge from decision 0008 so "She dont know" offers "doesn't" first. Harper alone can't do this.
-2. Open item from M0: test 4 (the "Open System Settings…" button).
+1. M5: wider app support + polish (PLAN.md).
+2. Waiting on the user: allow Haiku 5.5 and GPT-6 Luna in the OpenRouter guardrail, then rerun `eval/score.py` for all three (decision 0011). Until then the `.env` fallback model fails.
+3. Open: tier-2 p95 latency is 3.9 s against a 2 s target.
+4. Open item from M0: test 4 (the "Open System Settings…" button).
 
 ## Working with this user
 
@@ -61,4 +64,5 @@ There's an `rtk` hook that rewrites shell commands:
 - `cat a b` (several files) failed; use the Read tool.
 - `find` with `-prune`/`-o` is refused.
 - `ls` of a single path can print nothing; use `test -d`.
+- `cat` of a source file can hide comment lines; read with the Read tool before an exact replacement.
 - `swift test` output gets trimmed. Prefix commands with `rtk proxy` to get raw output.

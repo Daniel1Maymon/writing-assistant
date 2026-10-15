@@ -14,6 +14,13 @@ final class AppState: ObservableObject {
     @Published private(set) var envSummary = ".env: not loaded"
     @Published private(set) var probeSummary: String?
     @Published private(set) var saveAcceptedFixes = true
+    /// Today's AI use for the menu, e.g. "AI today: 12 checks · $0.0011".
+    @Published private(set) var aiSummary = "AI checks: off (no key)"
+    @Published private(set) var aiCapReached = false
+    @Published private(set) var hasKey = false
+
+    /// For the debug socket.
+    static weak var shared: AppState?
 
     /// Values from `.env` (debug builds only). Never logged or shown.
     private(set) var env: [String: String] = [:]
@@ -21,6 +28,7 @@ final class AppState: ObservableObject {
     private var checker: CheckController?
 
     func start() {
+        Self.shared = self
         UserDefaults.standard.register(defaults: [CheckController.saveFixesKey: true])
         saveAcceptedFixes = UserDefaults.standard.bool(forKey: CheckController.saveFixesKey)
         loadEnv()
@@ -54,7 +62,9 @@ final class AppState: ObservableObject {
         guard accessibilityGranted, checker == nil else { return }
         let checker = CheckController()
         checker.start()
+        checker.onUsageChange = { [weak self] ledger, capReached in self?.showUsage(ledger, capReached: capReached) }
         self.checker = checker
+        setTierTwo(enabled: true)
         #if DEBUG
         DebugServer.start(controller: checker)
         #endif
@@ -69,6 +79,56 @@ final class AppState: ObservableObject {
     func setSaveAcceptedFixes(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)
         saveAcceptedFixes = enabled
+    }
+
+    // MARK: Tier 2 (OpenRouter)
+
+    private static let defaultModels = ["anthropic/claude-haiku-5.5", "openai/gpt-6-luna"]
+
+    /// Debug builds use `.env` first; every build falls back to the Keychain (DESIGN.md → Secrets).
+    private var apiKey: String? {
+        #if DEBUG
+        if let key = env["OPENROUTER_API_KEY"], !key.isEmpty { return key }
+        #endif
+        return KeychainStore.read()
+    }
+
+    func setTierTwo(enabled: Bool) {
+        guard let checker else { return }
+        let key = enabled ? apiKey : nil
+        hasKey = apiKey != nil
+        let models = [env["OPENROUTER_MODEL"] ?? Self.defaultModels[0], env["OPENROUTER_FALLBACK_MODEL"] ?? Self.defaultModels[1]]
+        let base = URL(string: env["OPENROUTER_BASE_URL"] ?? "") ?? URL(string: "https://openrouter.ai/api/v1")!
+        checker.configureTierTwo(models: models, cap: Int(env["DAILY_REQUEST_CAP"] ?? "") ?? 1000,
+                                 send: key.map { OpenRouterTransport.make(key: $0, baseURL: base) })
+        if key == nil {
+            aiSummary = hasKey ? "AI checks: off" : "AI checks: off (no key)"
+            aiCapReached = false
+        }
+        log.info("Tier 2: \(key == nil ? "off" : "on", privacy: .public)")
+    }
+
+    private func showUsage(_ ledger: UsageLedger, capReached: Bool) {
+        let today = ledger.day == UsageLedger.dayKey(Date()) ? ledger : UsageLedger()
+        aiSummary = String(format: "AI today: %d checks · $%.4f", today.requests, today.cost)
+        aiCapReached = capReached
+    }
+
+    /// Asks for the OpenRouter key and saves it in the Keychain. The key is never logged or shown.
+    func askForKey() {
+        let alert = NSAlert()
+        alert.messageText = "OpenRouter key"
+        alert.informativeText = "Paste your OpenRouter API key. It's stored in your Keychain."
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let key = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, KeychainStore.save(key) else { return }
+        setTierTwo(enabled: true)
     }
 
     // MARK: Launch at login

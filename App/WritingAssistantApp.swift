@@ -50,6 +50,13 @@ struct MenuContent: View {
             Text("Login item error: \(error)")
         }
 
+        Divider()
+        Text(state.aiSummary)
+        if state.aiCapReached {
+            Text("⚠︎ Daily AI limit reached: word checks only until tomorrow")
+        }
+        Button(state.hasKey ? "Change OpenRouter Key…" : "Set OpenRouter Key…") { state.askForKey() }
+
         #if DEBUG
         Divider()
         Text("Debug")
