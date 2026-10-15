@@ -13,6 +13,7 @@ final class AppState: ObservableObject {
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var envSummary = ".env: not loaded"
     @Published private(set) var probeSummary: String?
+    @Published private(set) var saveAcceptedFixes = true
 
     /// Values from `.env` (debug builds only). Never logged or shown.
     private(set) var env: [String: String] = [:]
@@ -20,6 +21,8 @@ final class AppState: ObservableObject {
     private var checker: CheckController?
 
     func start() {
+        UserDefaults.standard.register(defaults: [CheckController.saveFixesKey: true])
+        saveAcceptedFixes = UserDefaults.standard.bool(forKey: CheckController.saveFixesKey)
         loadEnv()
         registerLoginItemOnFirstRun()
         refreshLaunchAtLogin()
@@ -60,6 +63,12 @@ final class AppState: ObservableObject {
     func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
+    }
+
+    /// Accepted fixes go to the local mistake log only while this is on.
+    func setSaveAcceptedFixes(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)
+        saveAcceptedFixes = enabled
     }
 
     // MARK: Launch at login

@@ -1,4 +1,4 @@
-# Handoff — Writing Assistant (as of 2026-10-15, after M1)
+# Handoff — Writing Assistant (as of 2026-10-15, after M3)
 
 Read this first, then `CLAUDE.md` (standing rules), `DESIGN.md` (what/why), `PLAN.md` (milestones + tests), and `docs/decisions/`.
 
@@ -18,7 +18,9 @@ A personal Grammarly replacement: a native macOS menu-bar app (Swift) that under
 | Tier-1 probe inside the real app | `DESIGN.md` → Open decision | Grammar is weak but present (caught "I has a apple."). Harper should be evaluated at the start of M2 |
 | Dev model = DeepSeek V4 Flash | decision 0004 | User's choice; M4 eval decides the final model |
 | **M1 core logic: done** | `Core/Sources/Core/` (Sentence, Suggestion, LRUCache, MistakeLog) | 43/43 tests, 95.8% line coverage |
-| Git repo | `.gitignore` | Committed: M0 (`4504e25`), then M1 |
+| **M2 Harper + underlines: done** | `App/`, `AXKit/`, decisions 0005–0006 | `scripts/m2-check.py` 6/6 + manual in TextEdit |
+| **M3 card, accept, ⌥⏎, ignore, dictionary: done** | `App/Card.swift`, `App/Applier.swift`, decisions 0008–0009 | `scripts/m3-check.py` 12/12; real clicks/⌥⏎ via `scripts/real-app-check.py` in TextEdit, Notes, Mail, Messages |
+| Git repo | `.gitignore` | Committed per milestone (M0–M3) |
 
 ## How to build
 
@@ -40,14 +42,17 @@ scripts/install.sh --probe    # same, and run the spell-checker probe at launch
 
 ## Next steps
 
-1. Open item from M0: test 4 (the "Open System Settings…" button). Run `tccutil reset Accessibility com.danielmaymon.WritingAssistant`, relaunch, and click the button.
-2. M2 (read text + local checks + underlines). Evaluate Harper first (see DESIGN.md → Open decision).
+1. M4: OpenRouter tier 2. Per-sentence model fixes, whole-sentence fixes and natural rewrites (decision 0007), and the merge from decision 0008 so "She dont know" offers "doesn't" first. Harper alone can't do this.
+2. Open item from M0: test 4 (the "Open System Settings…" button).
 
 ## Working with this user
 
 - **Do the work yourself.** Only hand over steps that truly need the user (password, license, Apple ID), and batch them into one short list, not one at a time. Look for a no-sudo route first; `DEVELOPER_DIR` is an example of one that was missed.
 - Plain English, short and scannable; give one topic per message.
 - Never print `.env` values. To check the key, print only whether it's set and its length.
+
+- **Never hand him test steps.** The debug build drives real apps itself: the `click` / `optionReturn` socket commands post real hardware events. Test in Messages only in a new message with no recipient.
+- The terminal (cmux) grabs focus between shell commands. Activate the target app inside the same command before any keystroke.
 
 ## Tool quirks on this machine
 

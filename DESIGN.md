@@ -81,7 +81,7 @@ Only changed sentences reach the checkers.
 4. **Debounce.** Tier 1 on dirty sentences after ~400 ms idle. Tier 2 only when a sentence looks finished (ends in `.?!` and caret left it) or after ~1.5 s idle.
 5. **Tier 1 – local.** Harper spelling + grammar (fallback `NSSpellChecker`). Deterministic, free, exact ranges.
 6. **Tier 2 – OpenRouter.** Dirty sentence + one sentence of context either side. Asks for clarity, conciseness, and grammar the local checker misses. Structured JSON out.
-7. **Merge.** Map to absolute offsets, drop LLM edits overlapping a tier-1 fix, drop ignored items, render.
+7. **Merge.** Map to absolute offsets, on the same word the model's fix comes first with Harper's as alternatives, drop LLM edits that only partly overlap a tier-1 fix (decision 0008), drop ignored items, render.
 8. **Cache.** Keyed by sentence hash (+ ignore-list version), in memory + small on-disk SQLite.
 
 ### LLM output contract

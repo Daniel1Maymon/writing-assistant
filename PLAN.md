@@ -151,14 +151,42 @@ Exit: unit tests green, `m2-check.py` all pass, manual check done.
 
 ## M3 — Suggestion card, accept, dismiss (2 days)
 
-Build: click on underline → popover; accept via AX set-selected-text, fallback paste (restore pasteboard after); ⌥⏎ shortcut; dismiss / ignore rule / add to dictionary (persisted in `~/Library/Application Support/WritingAssistant`).
-Tests:
-- XCUITest: accept → field text equals expected; Cmd+Z in the host app restores original.
-- Accept a whole-sentence replacement (needed by M4 rewrites, decision 0007) → field text equals expected, caret ends after the sentence.
-- Pasteboard contents identical before and after a paste-fallback accept.
-- Dismissed item stays gone after more typing; dictionary word never flagged again.
-- Mistake log: accept → exactly one new row with the sentence **before** the fix, original, replacement, category, app bundle id; dismiss / ignore rule / add to dictionary → no row; log turned off in Settings → no row; log file made unwritable → fix still applied, no crash.
-Exit: green; manual accept works in TextEdit, Notes, Mail, Messages, and each manual accept shows up in `mistakes.sqlite`.
+Build:
+- **Open the card:** a global mouse monitor notices a click on an underline. The click still reaches the host app, and the overlay stays click-through. The card is a non-activating panel under the word: the message, before → after, 1–3 replacement buttons, Dismiss, Ignore rule, Add to dictionary (spelling only). It closes on a click elsewhere, on typing, or on a focus change.
+- **Accept:** set the AX selection to the span, then set the selected text. If the field didn't change, fall back to paste: select the span, put the replacement on the pasteboard, send ⌘V, then put the old pasteboard back. Before writing, check that the text at the span still equals `original`; if not, do nothing.
+- **⌥⏎** accepts the first replacement of the suggestion under the caret, or of the open card. An event tap swallows the key only in that case, so ⌥⏎ works normally everywhere else.
+- **Persistence:** dismissed ids, ignored rules and dictionary words go to `~/Library/Application Support/WritingAssistant/ignore.json`.
+- **Mistake log:** each accept writes one row. A menu toggle "Save accepted fixes" (default on) turns it off.
+
+Unit tests (`swift test`, Core):
+
+| Area | Test |
+| --- | --- |
+| Ignore list in document | `placed(ignoring:)` hides dismissed ids, ignored rules and dictionary words (spelling only); other suggestions stay |
+| Ignore list file | Save → load gives the same lists; a missing or corrupt file gives an empty list without throwing |
+| Apply plan | Replacing a span gives the expected new text and caret position (end of the replacement), with Hebrew/emoji before the span; a span whose current text isn't `original` → refused |
+
+Integration (`scripts/m3-check.py`, installed debug app + FixtureApp). Clicks and keys can't be sent from the shell, so the harness calls the same accept/dismiss code the card buttons call, through the debug socket:
+
+| # | Scenario | Pass |
+| --- | --- | --- |
+| 1 | Accept "recieve" → "receive" (AX path) | Field text is exactly the fixed sentence; the underline is gone |
+| 2 | Undo in the fixture | Original text back |
+| 3 | Accept a whole-sentence replacement (decision 0007) | Field text as expected; caret right after the new sentence |
+| 4 | Accept through the paste fallback | Field text fixed; pasteboard text identical before and after |
+| 5 | Dismiss, then type more | The dismissed item stays gone |
+| 6 | Add to dictionary, then type the word again in a new sentence | Never flagged; still gone after an app restart |
+| 7 | Ignore rule | No suggestion with that rule id anywhere in the text |
+| 8 | Mistake log | Accept → exactly one new row with the sentence **before** the fix, original, replacement, category, bundle id; dismiss / ignore / dictionary → no row; log turned off → no row; log file read-only → fix still applied, app still running |
+| 9 | Text changed under a stale suggestion | Accept refused, field unchanged |
+
+Real-app check (`scripts/real-app-check.py <bundle id>`, installed debug app; the app posts the clicks and ⌥⏎ itself as hardware events through the debug socket, so the mouse monitor and the event tap are exercised): underlines on "I recieve the mail every day. She dont like teh rain." → click underline opens the card → click the first fix fixes it → caret at the end of "teh" + ⌥⏎ fixes it → ⌥⏎ with nothing flagged reaches the app (skipped in Messages: a stray Return could send) → card closed. Run in TextEdit, Notes, Mail (compose body is a WebKit web area, read through text markers, decision 0009; fixes go through paste) and Messages (a new message with no recipient).
+
+Manual (real apps, installed app): click an underline → the card opens under the word; click a replacement → fixed; ⌥⏎ with the caret in a flagged word → fixed; ⌥⏎ elsewhere → normal behaviour. Do this in TextEdit, Notes, Mail, Messages; each accept shows up in `mistakes.sqlite`. Verified manually only: clicks and keys can't be sent from the shell without granting the terminal Accessibility.
+
+Exit: unit + `m3-check.py` green, manual check done.
+
+**M3 result (2026-10-15):** unit 63/63; `m3-check.py` 12/12 (test 8 split into 8a–8d); `m2-check.py` still 6/6. Real app, installed `.app`, through the debug socket (not a click): accept in TextEdit fixed "recieve" → "receive" via the AX path and wrote one `mistakes.sqlite` row. Real clicks and keys in TextEdit, posted as hardware events by the app itself (debug `click` / `optionReturn` commands): click on underline → card opened; click on the card's first fix → fixed; caret at the end of "teh" + ⌥⏎ → "the"; ⌥⏎ with no flagged word under the caret → a normal new line. The stale guard also refused one accept whose span had changed. Then the same real-click check in other real apps (`real-app-check.py`): Notes 6/6, Mail 6/6 (after adding WebKit text markers, decision 0009, and a guard so ⌥⏎ never acts on a stale position after a paste fix), Messages 5/5 (passthrough skipped). Final rerun on the last build: TextEdit 6/6, `m3-check.py` 12/12, `m2-check.py` 6/6, unit 63/63. One earlier rerun had a flaky TextEdit 5/6 and one m3-check crash (a suggestion not yet re-checked when the script looked); both passed on the next run. **M3 exit check: passed.** Harness note: FixtureApp needs an Edit menu, or ⌘V (paste fallback) and ⌘Z do nothing.
 
 ## M4 — OpenRouter tier 2 (2 days)
 
@@ -171,8 +199,9 @@ Tests (stubbed):
 - Cap reached → no more requests that day; menu shows warning.
 - Request body never logged (capture `os_log` in test).
 - Rewrite (decision 0007): `rewrite` with kind `fix` → one sentence-wide suggestion (red); kind `natural` → one sentence-wide suggestion (blue); `null` → none; a rewrite equal to the sentence → dropped; malformed `rewrite` → edits still used.
+- Merge, same word (decision 0008): Harper `dont` → [don't, dent, don] plus model `dont` → doesn't → one suggestion [doesn't, don't, dent], model category and reason, Harper's rule id. A model span containing the Harper span → same. Partial overlap → model edit dropped.
 - Accepting a rewrite replaces the whole sentence, removes that sentence's word-level suggestions, and logs exactly one mistake-log row (`grammar` for fix, `clarity` for natural).
-Manual (real app): type "Is it work?" in TextEdit → a red dashed line under the whole sentence; card offers "Does it work?"; accept → the sentence is replaced. Type a correct but stiff sentence → blue dashed line with a more natural version.
+Manual (real app): type "She dont know." → the card offers "doesn't" first and "don't" second; ⌥⏎ → "She doesn't know." Type "Is it work?" in TextEdit → a red dashed line under the whole sentence; card offers "Does it work?"; accept → the sentence is replaced. Type a correct but stiff sentence → blue dashed line with a more natural version.
 Live test (`LIVE_OPENROUTER=1 swift test --filter Live`): 5 sample sentences return sensible edits.
 Eval: run `score.py` (including: on clean, natural sentences `rewrite` is `null` ≥ 90% of the time, decision 0007) for Haiku 5.5, GPT-6 Luna, DeepSeek V4 Flash → pick the main model.
 Exit: green + eval done.

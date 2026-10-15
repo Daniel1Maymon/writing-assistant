@@ -36,9 +36,12 @@ public struct DocumentState: Sendable {
     }
 
     /// Every stored suggestion at its current place in the text, in text order.
-    public var placed: [PlacedSuggestion] {
+    public var placed: [PlacedSuggestion] { placed(ignoring: IgnoreList()) }
+
+    /// Like `placed`, without what the user dismissed, ignored or added to the dictionary.
+    public func placed(ignoring ignore: IgnoreList) -> [PlacedSuggestion] {
         sentences.flatMap { sentence in
-            merge(local: results[sentence.hash] ?? [], llm: []).map {
+            merge(local: results[sentence.hash] ?? [], llm: [], ignore: ignore).map {
                 PlacedSuggestion(suggestion: $0, range: NSRange(
                     location: sentence.range.location + $0.range.location, length: $0.range.length))
             }

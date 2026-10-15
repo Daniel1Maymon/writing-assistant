@@ -8,3 +8,4 @@ xcuserdata/
 .swiftpm/
 WritingAssistant.xcodeproj/
 WritingAssistant *.xcodeproj/
+__pycache__/

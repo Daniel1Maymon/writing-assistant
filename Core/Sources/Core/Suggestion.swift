@@ -100,7 +100,7 @@ public func suggestions(from edits: [LLMEdit], in sentence: Sentence) -> [Sugges
 }
 
 /// What the user has told the app to stop showing.
-public struct IgnoreList: Equatable, Sendable {
+public struct IgnoreList: Codable, Equatable, Sendable {
     public var rules: Set<String>
     public var dismissed: Set<String>
     /// Stored lower-cased.
@@ -112,7 +112,7 @@ public struct IgnoreList: Equatable, Sendable {
         self.dictionary = Set(dictionary.map { $0.lowercased() })
     }
 
-    func hides(_ suggestion: Suggestion) -> Bool {
+    public func hides(_ suggestion: Suggestion) -> Bool {
         if dismissed.contains(suggestion.id) { return true }
         if let rule = suggestion.ruleId, rules.contains(rule) { return true }
         return suggestion.category == .spelling && dictionary.contains(suggestion.original.lowercased())
@@ -128,4 +128,36 @@ public func merge(local: [Suggestion], llm: [Suggestion], ignore: IgnoreList = I
     return (local + llmKept)
         .filter { !ignore.hides($0) && seen.insert($0.id).inserted }
         .sorted { ($0.range.location, $0.range.length) < ($1.range.location, $1.range.length) }
+}
+
+extension IgnoreList {
+    /// Reads the list saved by `save(to:)`. A missing or unreadable file gives an empty list.
+    public static func load(from url: URL) -> IgnoreList {
+        guard let data = try? Data(contentsOf: url),
+              let list = try? JSONDecoder().decode(IgnoreList.self, from: data) else { return IgnoreList() }
+        return IgnoreList(rules: list.rules, dismissed: list.dismissed, dictionary: list.dictionary)
+    }
+
+    public func save(to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(self).write(to: url, options: .atomic)
+    }
+}
+
+/// The result of replacing one span of a field's text.
+public struct AppliedEdit: Equatable, Sendable {
+    public let text: String
+    /// UTF-16 caret position after the edit: the end of the replacement.
+    public let caret: Int
+}
+
+/// Replaces `range` of `text` with `replacement`, but only if the span still reads `original`
+/// (the text may have changed since the suggestion was made). Nil when it doesn't.
+public func applyEdit(to text: String, range: NSRange, original: String, replacement: String) -> AppliedEdit? {
+    let ns = text as NSString
+    guard NSMaxRange(range) <= ns.length, ns.substring(with: range) == original else { return nil }
+    return AppliedEdit(text: ns.replacingCharacters(in: range, with: replacement),
+                       caret: range.location + (replacement as NSString).length)
 }

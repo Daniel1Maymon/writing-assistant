@@ -42,6 +42,10 @@ struct MenuContent: View {
             get: { state.launchAtLogin },
             set: { state.setLaunchAtLogin($0) }
         ))
+        Toggle("Save accepted fixes", isOn: Binding(
+            get: { state.saveAcceptedFixes },
+            set: { state.setSaveAcceptedFixes($0) }
+        ))
         if let error = state.launchAtLoginError {
             Text("Login item error: \(error)")
         }

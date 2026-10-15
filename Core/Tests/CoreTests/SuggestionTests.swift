@@ -136,3 +136,50 @@ private func suggestion(_ sentence: Sentence, _ range: NSRange, _ replacement: S
         #expect(cache.get("a") == 2)
     }
 }
+
+@Suite struct M3CoreTests {
+    private func suggestion(_ sentence: Sentence, _ word: String, _ category: SuggestionCategory, rule: String) -> Suggestion {
+        Suggestion(sentenceHash: sentence.hash, range: (sentence.text as NSString).range(of: word), original: word,
+                   category: category, message: "m", replacements: ["x"], source: .local, ruleId: rule)
+    }
+
+    @Test func placedIgnoringHidesDismissedRulesAndDictionaryWords() {
+        var state = DocumentState()
+        let sentence = state.update(text: "Teh Zorbo has a apple.")[0]
+        let teh = suggestion(sentence, "Teh", .spelling, rule: "harper.SpellCheck")
+        let zorbo = suggestion(sentence, "Zorbo", .spelling, rule: "harper.SpellCheck2")
+        let has = suggestion(sentence, "has", .grammar, rule: "harper.Agreement")
+        let a = suggestion(sentence, "a", .grammar, rule: "harper.AnA")
+        state.store([teh, zorbo, has, a], for: sentence.hash)
+
+        let ignore = IgnoreList(rules: ["harper.AnA"], dismissed: [has.id], dictionary: ["zorbo", "teh-not"])
+        #expect(state.placed(ignoring: ignore).map(\.suggestion.original) == ["Teh"])
+        #expect(state.placed.count == 4)
+    }
+
+    @Test func ignoreListRoundTripsAndBadFilesGiveEmpty() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("IgnoreList-\(UUID().uuidString)")
+        let url = dir.appendingPathComponent("sub/ignore.json")
+        let list = IgnoreList(rules: ["r"], dismissed: ["d"], dictionary: ["Zorbo"])
+        try list.save(to: url)
+        #expect(IgnoreList.load(from: url) == list)
+        #expect(IgnoreList.load(from: dir.appendingPathComponent("missing.json")) == IgnoreList())
+        try Data("not json".utf8).write(to: url)
+        #expect(IgnoreList.load(from: url) == IgnoreList())
+    }
+
+    @Test func applyEditReplacesSpanAndPutsCaretAfterIt() {
+        let text = "😀 שלום I recieve mail."
+        let range = (text as NSString).range(of: "recieve")
+        let edit = applyEdit(to: text, range: range, original: "recieve", replacement: "receive")
+        #expect(edit == AppliedEdit(text: "😀 שלום I receive mail.", caret: NSMaxRange(range)))
+        let sentence = applyEdit(to: "Is it work? Yes.", range: NSRange(location: 0, length: 11),
+                                 original: "Is it work?", replacement: "Does it work?")
+        #expect(sentence == AppliedEdit(text: "Does it work? Yes.", caret: 13))
+    }
+
+    @Test func applyEditRefusesWhenTextChanged() {
+        #expect(applyEdit(to: "I receive mail.", range: NSRange(location: 2, length: 7), original: "recieve", replacement: "receive") == nil)
+        #expect(applyEdit(to: "Hi", range: NSRange(location: 1, length: 5), original: "i", replacement: "o") == nil)
+    }
+}

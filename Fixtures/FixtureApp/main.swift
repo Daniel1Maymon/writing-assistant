@@ -19,6 +19,16 @@ final class Fixture: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // ⌘V and ⌘Z are menu key equivalents; without an Edit menu they do nothing (m3-check.py test 4).
+        let mainMenu = NSMenu()
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editItem.submenu = edit
+        mainMenu.addItem(NSMenuItem())
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
         window.title = "WA Fixture"
         textView.font = .systemFont(ofSize: 15)
         textView.isRichText = false
@@ -27,6 +37,7 @@ final class Fixture: NSObject, NSApplicationDelegate {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.autoresizingMask = [.width]
+        textView.allowsUndo = true
         scroll.documentView = textView
         scroll.hasVerticalScroller = true
         for view in [scroll, field, secure] as [NSView] { window.contentView?.addSubview(view) }
@@ -57,6 +68,16 @@ final class Fixture: NSObject, NSApplicationDelegate {
             let range = (target.string as NSString).range(of: command["from"] as? String ?? "")
             guard range.location != NSNotFound else { return #"{"ok":false}"# }
             target.insertText(command["to"] as? String ?? "", replacementRange: range)
+        case "undo":
+            _ = editor(command["field"] as? String)
+            window.undoManager?.undo()
+        case "get":
+            let target = editor(command["field"] as? String)
+            let selection = target.selectedRange()
+            let object: [String: Any] = ["ok": true, "text": target.string,
+                                         "selection": [selection.location, selection.length]]
+            let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+            return String(decoding: data, as: UTF8.self)
         case "focus":
             _ = editor(command["field"] as? String)
         case "move":
