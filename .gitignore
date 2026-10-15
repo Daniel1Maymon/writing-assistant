@@ -1,0 +1,9 @@
+.env
+.DS_Store
+build/
+DerivedData/
+.build/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+WritingAssistant.xcodeproj/

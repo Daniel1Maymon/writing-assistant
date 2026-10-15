@@ -1,0 +1,52 @@
+name: WritingAssistant
+options:
+  bundleIdPrefix: com.danielmaymon
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  Core:
+    path: Core
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "2"
+
+targets:
+  WritingAssistant:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: Core
+    info:
+      path: App/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: Writing Assistant
+        LSApplicationCategoryType: public.app-category.productivity
+        # Debug builds read the OpenRouter key from the repo's .env (see CLAUDE.md).
+        WAEnvPath: $(WA_ENV_PATH)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.danielmaymon.WritingAssistant
+        PRODUCT_NAME: WritingAssistant
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO
+        # Signing is applied by scripts/install.sh (decision 0003), so the build itself stays unsigned.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        # One binary, so the re-sign covers all code (no separate preview dylib).
+        ENABLE_DEBUG_DYLIB: NO
+      configs:
+        Debug:
+          WA_ENV_PATH: $(SRCROOT)/.env
+        Release:
+          WA_ENV_PATH: ""
