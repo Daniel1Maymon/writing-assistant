@@ -1,4 +1,4 @@
-# Handoff — Writing Assistant (as of 2026-10-15, after M0)
+# Handoff — Writing Assistant (as of 2026-10-15, after M1)
 
 Read this first, then `CLAUDE.md` (standing rules), `DESIGN.md` (what/why), `PLAN.md` (milestones + tests), and `docs/decisions/`.
 
@@ -17,7 +17,8 @@ A personal Grammarly replacement: a native macOS menu-bar app (Swift) that under
 | Signing with a local self-signed certificate | decision 0003 | Permission survived a rebuild with a different code hash |
 | Tier-1 probe inside the real app | `DESIGN.md` → Open decision | Grammar is weak but present (caught "I has a apple."). Harper should be evaluated at the start of M2 |
 | Dev model = DeepSeek V4 Flash | decision 0004 | User's choice; M4 eval decides the final model |
-| Git repo | `.gitignore` | **Nothing committed yet**; ask before the first commit |
+| **M1 core logic: done** | `Core/Sources/Core/` (Sentence, Suggestion, LRUCache, MistakeLog) | 43/43 tests, 95.8% line coverage |
+| Git repo | `.gitignore` | Committed: M0 (`4504e25`), then M1 |
 
 ## How to build
 
@@ -40,8 +41,7 @@ scripts/install.sh --probe    # same, and run the spell-checker probe at launch
 ## Next steps
 
 1. Open item from M0: test 4 (the "Open System Settings…" button). Run `tccutil reset Accessibility com.danielmaymon.WritingAssistant`, relaunch, and click the button.
-2. M1 (Core logic). Its exit check is pure `swift test`.
-3. Before M2: evaluate Harper (see DESIGN.md → Open decision).
+2. M2 (read text + local checks + underlines). Evaluate Harper first (see DESIGN.md → Open decision).
 
 ## Working with this user
 

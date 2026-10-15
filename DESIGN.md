@@ -118,6 +118,7 @@ During development, `.env` uses DeepSeek V4 Flash ([0004](docs/decisions/0004-de
 | id | String | Hash of sentence hash + span + replacement |
 | sentenceHash | String | Ties suggestion to its sentence |
 | range | NSRange | UTF-16 offsets within the sentence (matches AX + NSString) |
+| original | String | The flagged text at `range` (used for the dictionary check and the mistake log) |
 | category | enum | spelling · grammar · punctuation · clarity · concise |
 | message | String | One-line explanation |
 | replacements | [String] | 1–3 options, best first |

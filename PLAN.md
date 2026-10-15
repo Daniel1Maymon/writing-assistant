@@ -83,7 +83,35 @@ Unit tests (must include):
 - Merge drops overlapping LLM edit, keeps others, honours ignore list + dictionary.
 - Emoji and Hebrew don't break offsets (UTF-16 throughout, matching AX).
 
+Detailed M1 test list (written before the code, 2026-10-15). All are unit tests in `Core/Tests/CoreTests`:
+
+| Area | Test |
+| --- | --- |
+| segment | "Dr. Smith arrived. He sat down." → 2 sentences, the first is "Dr. Smith arrived." |
+| segment | "Use a tool, e.g. this one. Then stop." → 2 sentences ("e.g." doesn't split) |
+| segment | Ranges exclude trailing spaces/newlines; whitespace-only chunks (blank lines) are skipped; `(text as NSString).substring(with: range) == sentence.text` |
+| segment | Hebrew + emoji text: ranges are UTF-16 and round-trip through `NSString` |
+| segment | Text without final punctuation → one sentence; empty text → none |
+| hash | Same text → same hash; one changed letter → different hash; the hash ignores the sentence's position |
+| diff | Edit one of three sentences → exactly that one is dirty, the other two are kept |
+| diff | Same text again → nothing dirty; a sentence moved to another position stays kept |
+| relocate | Substring missing → nil; empty substring → nil |
+| relocate | Repeated substring → the occurrence nearest to the hint; no hint → the first |
+| relocate | Works after emoji/Hebrew (UTF-16 offsets) |
+| llm edits → suggestions | An edit whose `original` isn't in the sentence is dropped; two edits on the same repeated word get two different occurrences |
+| merge | An LLM suggestion overlapping a local one is dropped; a non-overlapping one is kept; the result is sorted by position |
+| merge | Ignored rule ids, dismissed suggestion ids and dictionary words (case-insensitive, spelling only) are removed |
+| suggestion id | Same sentence hash + range + replacement → same id; a different replacement → a different id |
+| cache | Same sentence text twice → cache hit; a different ignore version → miss; over capacity → the least recently used entry is evicted |
+| MistakeLog | record → read back identical fields, including a Hebrew + emoji sentence |
+| MistakeLog | `recent(limit:category:)` is newest first and filters by category |
+| MistakeLog | `mostRepeated` groups "Teh→The" and "teh→the" into one row with count 2 |
+| MistakeLog | CSV: header row; commas, quotes and newlines escaped (RFC 4180) |
+| MistakeLog | `deleteAll` empties it; a missing folder is created; an unwritable path throws (no crash) |
+
 Exit: `swift test` green, coverage ≥90%.
+
+**M1 result (2026-10-15): exit check passed.** 43/43 tests pass (13 `.env` + 30 new). Line coverage is 95.8% (regions 91.3%), measured with `swift test --enable-code-coverage` + `llvm-cov report`. The uncovered lines are SQLite error branches. `NLTokenizer` handles "Dr.", "e.g.", "p.m.", Hebrew and emoji without custom rules.
 
 ## M2 — Read text + local checks + underlines (3 days)
 
