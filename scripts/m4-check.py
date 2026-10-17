@@ -94,7 +94,8 @@ def main():
     dont = next((x for x in s["suggestions"] if x["original"] == "dont"), {}) if s else {}
     reps = dont.get("replacements", [])
     check(1, "She dont know. → doesn't first, don't after", ok and reps[:1] == ["doesn't"] and "don't" in reps[1:],
-          f"replacements={reps}, tier2={s.get('tier2') if s else None}")
+          f"replacements={reps}, text={s.get('text') if s else None!r}, role={s.get('role') if s else None}, "
+          f"caret={s.get('selection') if s else None}, tier2={s.get('tier2') if s else None}")
 
     # 2. Caret inside "dont" + real ⌥⏎ → "She doesn't know.", one log row from the model.
     fixture(cmd="select", field="text", location=6)

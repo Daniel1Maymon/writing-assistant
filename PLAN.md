@@ -207,6 +207,8 @@ Tests (stubbed):
 - Cost: `usage.cost` from each response is added to today's total; a new day resets the count and the cost.
 - Code-fenced JSON (```json … ```) from the model is still read.
 - Hit-testing and ⌥⏎ prefer a word-level suggestion over the sentence-wide one when both cover the caret or click.
+- Near the caret only (decision 0013): with a caret, only the caret's sentence and up to 2 sentences on each side are sent; a 20-sentence text with the caret at the end → at most 3 requests; moving the caret to the top → the top sentences are sent. No caret (a web page being read, not a field being written in) → nothing is sent.
+- Terminals (decision 0013): in cmux, Terminal, iTerm2, Ghostty and Warp tier 2 sends nothing (checked through the installed app: focus cmux → `tier2.counters.requests` doesn't move while its output changes).
 - Keychain: the debug socket `keychainSelfTest` saves, reads back and deletes a dummy item under a test account (never the real key).
 Real app, automated (`scripts/m4-real-app.py`, TextEdit, real clicks and ⌥⏎ posted by the debug app): "She dont know. Is it work?" → "dont" offers doesn't first; ⌥⏎ → "She doesn't know."; click the dashed line → card → click the fix → "Does it work?".
 Manual (real app): type "She dont know." → the card offers "doesn't" first and "don't" second; ⌥⏎ → "She doesn't know." Type "Is it work?" in TextEdit → a red dashed line under the whole sentence; card offers "Does it work?"; accept → the sentence is replaced. Type a correct but stiff sentence → blue dashed line with a more natural version.
@@ -222,6 +224,7 @@ Exit: green + eval done.
 - Overlay and card rendered to PNG (`snapshot`) and inspected: red dashed line under the sentence; card shows "Fix the whole sentence", the struck-through original and the fix.
 - Prompt: "She dont know." first gave "don't" in the app; after "fix the agreement, not only the spelling", 18/18 direct calls gave "doesn't" (grammar).
 - Eval: DeepSeek V4 Flash only. Haiku 5.5 and GPT-6 Luna are blocked by the account's OpenRouter guardrail. Results and choice are in decision 0011: 98% fixed, 0% false positives, rewrite null 100% on clean sentences, p95 3.9 s (misses the 2 s target), ≈ $0.05 per 1,000 sentences.
+- Fix after M4 (2026-10-17, decision 0013): cmux's terminal output and Chrome pages used up the 1,000-request daily cap, so TextEdit got no model answers. Now only sentences near the caret are sent, nothing with no caret, and nothing in terminals. Checked through the installed app: 10 s each in cmux and Chrome → 0 requests; TextEdit "does it works? / is it works?" → "does it work" / "does it work?"; `m4-real-app` 4/4; `m4-check` 11/11. Earlier runs failed only while the user was typing on the same machine.
 - Not done: the manual stiff-sentence → blue line check. DeepSeek almost never suggests natural rewrites (0 of 50 clean sentences), so it's only covered by unit tests.
 
 ## M5 — Wider app support + polish (3 days)

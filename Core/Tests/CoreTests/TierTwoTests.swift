@@ -187,6 +187,24 @@ private final class LogLines: @unchecked Sendable {
         #expect(h.scheduler.ledger.cost == 0.0001)
     }
 
+    @Test func onlySentencesNearTheCaretAreSent() async {
+        let h = Harness(stub: Stub { _ in response(#"{"edits": [], "rewrite": null}"#) })
+        let text = (1...20).map { "Line number \($0) is here." }.joined(separator: " ")
+        h.type(text, caret: (text as NSString).length)
+        await h.settle()
+        #expect(await h.stub.count == 3)
+        h.type(text, caret: 0)
+        await h.settle()
+        #expect(await h.stub.count == 6)
+    }
+
+    @Test func noCaretSendsNothing() async {
+        let h = Harness(stub: Stub { _ in response(#"{"edits": [], "rewrite": null}"#) })
+        h.type((1...8).map { "Line number \($0) is here." }.joined(separator: " "), caret: nil)
+        await h.settle()
+        #expect(await h.stub.count == 0)
+    }
+
     @Test func noRequestWhileTypingThenExactlyOneAfterThePeriod() async {
         let h = Harness(stub: Stub { _ in response(doesnt) })
         h.type("She dont kn", caret: 11)
@@ -267,13 +285,13 @@ private final class LogLines: @unchecked Sendable {
     @Test func capStopsRequestsUntilTheNextDay() async {
         let clock = Clock(Date(timeIntervalSince1970: 1_800_000_000))
         let h = Harness(stub: Stub { _ in response(doesnt) }, cap: 2, now: { clock.date })
-        h.type("One dont. Two dont. Three dont.", caret: nil)
+        h.type("One dont. Two dont. Three dont.", caret: 31)
         await h.settle()
         #expect(await h.stub.count == 2)
         #expect(h.scheduler.capReached)
         clock.date += 86_400
         #expect(!h.scheduler.capReached)
-        h.type("One dont. Two dont. Three dont.", caret: nil)
+        h.type("One dont. Two dont. Three dont.", caret: 31)
         await h.settle()
         #expect(await h.stub.count == 3)
         #expect(h.scheduler.ledger.requests == 1)

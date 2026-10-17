@@ -110,8 +110,13 @@ final class CheckController {
         }
     }
 
+    /// Terminal output isn't the user's writing: no model calls there (decision 0013).
+    static let terminals: Set<String> = ["com.cmuxterm.app", "com.apple.Terminal", "com.googlecode.iterm2",
+                                         "com.mitchellh.ghostty", "dev.warp.Warp-Stable"]
+
     private func updateTierTwo() {
-        guard let tierTwo, let element, !element.isSecure else { return }
+        guard let tierTwo, let element, !element.isSecure,
+              !Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") else { return }
         let caret = element.selectedRange?.location
         let document = document
         tierTwo.update(sentences: document.sentences, caret: caret) { document.hasLLMResults(for: $0) }

@@ -39,6 +39,8 @@ public final class TierTwoScheduler {
     public private(set) var ledger: UsageLedger
     public private(set) var counters = Counters()
     public let cap: Int
+    /// Only the caret's sentence and this many on each side are sent; with no caret, nothing (decision 0013).
+    public var nearCaret = 2
     /// Delivers suggestions for a sentence; the receiver must still check the sentence is current.
     public var onResult: ((Sentence, [Suggestion]) -> Void)?
     public var onLedgerChange: ((UsageLedger) -> Void)?
@@ -80,7 +82,8 @@ public final class TierTwoScheduler {
             counters.cancelled += 1
             log("tier2: cancelled a request whose sentence changed")
         }
-        for (index, sentence) in sentences.enumerated() {
+        let window = Self.window(sentences, caret: caret, radius: nearCaret)
+        for (index, sentence) in sentences.enumerated() where window.contains(index) {
             guard !done(sentence.hash), inFlight[sentence.hash] == nil,
                   failures[sentence.hash, default: 0] < Self.maxAttempts,
                   isReadyForTierTwo(sentence, caret: caret) else { continue }
@@ -100,6 +103,13 @@ public final class TierTwoScheduler {
             let after = index + 1 < sentences.count ? sentences[index + 1].text : nil
             start(sentence, before: before, after: after)
         }
+    }
+
+    /// The sentence indexes near the caret: the caret's sentence (or the last one starting before it) ± `radius`.
+    static func window(_ sentences: [Sentence], caret: Int?, radius: Int) -> Range<Int> {
+        guard let caret, !sentences.isEmpty else { return 0..<0 }
+        let at = sentences.lastIndex { $0.range.location <= caret } ?? 0
+        return max(at - radius, 0)..<min(at + radius + 1, sentences.count)
     }
 
     private func start(_ sentence: Sentence, before: String?, after: String?) {
