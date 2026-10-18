@@ -59,8 +59,12 @@ def focus_text():
 
 
 def show(text, caret=None):
+    """Sets all but the last character, then types it as a real key press (tier 2 waits for one, decision 0014)."""
     before = answers(state())
-    fixture(cmd="set", field="text", text=text)
+    fixture(cmd="set", field="text", text=text[:-1])
+    fixture(cmd="select", field="text", location=len(text[:-1].encode("utf-16-le")) // 2)
+    app(cmd="type", text=text[-1])
+    wait_for(lambda s: s.get("text") == text, 2)
     if caret is not None:
         fixture(cmd="select", field="text", location=caret)
     return before
@@ -160,7 +164,7 @@ def main():
 
     # 9. Changing the sentence mid-request cancels it; the old answer never shows.
     cancelled = state()["tier2"]["counters"]["cancelled"]
-    fixture(cmd="set", field="text", text="Yesterday I have seen a nice movie.")
+    show("Yesterday I have seen a nice movie.")
     time.sleep(0.15)
     fixture(cmd="set", field="text", text="Yesterday I have seen a nice movi")
     time.sleep(4)
@@ -181,6 +185,14 @@ def main():
     tier2_lines = sum("tier2:" in line for line in out.splitlines())
     check(11, "app log has tier-2 lines but none of the text", tier2_lines > 0 and not leaks,
           f"{tier2_lines} tier-2 lines, leaks={leaks}")
+
+    # 12. Text that changes with no key press or click for 10 s (logs, live pages) → no request (decision 0014).
+    time.sleep(11)
+    requests = state()["tier2"]["counters"]["requests"]
+    fixture(cmd="set", field="text", text="He go to school every days.")
+    time.sleep(3)
+    sent = state()["tier2"]["counters"]["requests"] - requests
+    check(12, "text changed without user input → no request", sent == 0, f"requests={sent}")
 
     s = state()
     print(f"\nTier 2 today: {s['tier2']['requestsToday']} requests, ${s['tier2']['costToday']:.5f}; snapshots in {work}")

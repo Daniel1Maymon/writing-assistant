@@ -49,6 +49,9 @@ final class CheckController {
     /// Tier 2 (OpenRouter). Nil until a key is configured.
     private(set) var tierTwo: TierTwoScheduler?
     private var tierTwoTimer: Timer?
+    /// The last key press or mouse click anywhere; tier 2 only runs shortly after one (decision 0014).
+    private var lastInput: ContinuousClock.Instant?
+    private static let inputWindow = Duration.seconds(10)
     /// Called when today's AI use changes, for the menu.
     var onUsageChange: ((UsageLedger, Bool) -> Void)?
     static let ledgerKey = "tierTwoLedger"
@@ -71,9 +74,13 @@ final class CheckController {
         // A global monitor sees clicks in other apps and lets them through; the overlay stays click-through.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             let point = NSEvent.mouseLocation
-            MainActor.assumeIsolated { self?.clicked(at: point) }
+            MainActor.assumeIsolated {
+                self?.lastInput = .now
+                self?.clicked(at: point)
+            }
         }
         hotKey = OptionReturnTap { [weak self] in self?.optionReturn() ?? false }
+        hotKey?.onKeyDown = { [weak self] in self?.lastInput = .now }
         if hotKey?.start() != true {
             log.error("Option-Return tap could not start")
         }
@@ -110,13 +117,13 @@ final class CheckController {
         }
     }
 
-    /// Terminal output isn't the user's writing: no model calls there (decision 0013).
+    /// Terminal output isn't the user's writing: nothing is checked there (decisions 0013, 0014).
     static let terminals: Set<String> = ["com.cmuxterm.app", "com.apple.Terminal", "com.googlecode.iterm2",
                                          "com.mitchellh.ghostty", "dev.warp.Warp-Stable"]
 
     private func updateTierTwo() {
         guard let tierTwo, let element, !element.isSecure,
-              !Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") else { return }
+              let lastInput, ContinuousClock.now - lastInput < Self.inputWindow else { return }
         let caret = element.selectedRange?.location
         let document = document
         tierTwo.update(sentences: document.sentences, caret: caret) { document.hasLLMResults(for: $0) }
@@ -131,7 +138,7 @@ final class CheckController {
             // Apps re-announce focus on the same field (e.g. a click inside it): keep its results then.
             guard tracker.focused != element else { return }
             card.hide()
-            element = tracker.focused
+            element = Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") ? nil : tracker.focused
             document = DocumentState()
             tierTwo?.update(sentences: [], caret: nil) { _ in true }
             redraw()
@@ -380,6 +387,8 @@ extension CheckController: CardActions {
 final class OptionReturnTap {
     private let handler: () -> Bool
     private var tap: CFMachPort?
+    /// Every key press, swallowed or not.
+    var onKeyDown: (() -> Void)?
 
     init(handler: @escaping () -> Bool) { self.handler = handler }
 
@@ -409,6 +418,7 @@ final class OptionReturnTap {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
+        if type == CGEventType.keyDown.rawValue { onKeyDown?() }
         let modifiers = CGEventFlags(rawValue: flags).intersection([.maskAlternate, .maskCommand, .maskControl, .maskShift])
         return type == CGEventType.keyDown.rawValue && (key == 36 || key == 76) && modifiers == .maskAlternate && handler()
     }

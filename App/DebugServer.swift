@@ -64,6 +64,17 @@ enum DebugServer {
                 event?.post(tap: .cghidEventTap)
             }
             return reply(["ok": true])
+        case "type":
+            // Real key presses, one per character, so tier 2 sees the user's own input (decision 0014).
+            for character in (command["text"] as? String ?? "").utf16 {
+                for down in [true, false] {
+                    let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                    event?.keyboardSetUnicodeString(stringLength: 1, unicodeString: [character])
+                    event?.post(tap: .cghidEventTap)
+                }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            return reply(["ok": true])
         case "axdump":
             // What the focused element exposes, for adding support for new kinds of fields.
             guard let element = controller.focusedElement else { return reply(["ok": false]) }

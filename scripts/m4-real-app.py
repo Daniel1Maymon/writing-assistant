@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m3_helpers import app, card_buttons, state  # noqa: E402
 
 BUNDLE = "com.apple.TextEdit"
-TEXT = "She dont know. Is it work?"
+TEXT = "She dont know. Is it work?"  # the last character is typed as a real key press (decision 0014)
 results = []
 
 
@@ -55,7 +55,14 @@ def osascript(script):
 def main():
     app(cmd="setTierTwo", enabled=True)
     app(cmd="setLog", path=os.path.join(tempfile.mkdtemp(prefix="wa-m4-real-"), "mistakes.sqlite"))  # keep the real log clean
-    osascript(f'tell application "TextEdit"\nactivate\nmake new document with properties {{text:"{TEXT}"}}\nend tell')
+    osascript(f'tell application "TextEdit"\nactivate\nmake new document with properties {{text:"{TEXT[:-1]}"}}\nend tell')
+    _, front = wait(lambda s: s.get("text") == TEXT[:-1], 5)
+    if not front:  # never press keys into another app (a person may be using it)
+        osascript('tell application "TextEdit" to close front document saving no')
+        app(cmd="setLog", path="")
+        raise SystemExit(f"TextEdit's document isn't focused (app={state().get('app')}); nothing typed")
+    osascript('tell application "System Events" to key code 125 using command down')  # caret to the end
+    app(cmd="type", text=TEXT[-1])
     try:
         s, ok = wait(lambda s: word(s) and sentence(s), 25)
         dont = word(s) if s else None
