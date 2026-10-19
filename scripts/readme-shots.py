@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Takes the README screenshots through the installed app, with sample text and a sample mistake log.
 
-1. Underlines in TextEdit  2. The suggestion card  3. The Writing window over a terminal  4. "My mistakes"
+TextEdit: 1. underlines  2. the word card  3. the whole-sentence card  4. both fixed
+Terminal: 5. the Writing window with underlines  6. fixed  7. pasted at the prompt (not run)
+8. "My mistakes", showing the fixes just made
 Only the app's own windows and the sample windows are captured (each shot is cropped to them).
 Needs: scripts/install.sh run, Screen Recording allowed for the terminal. Takes over the screen for ~1 min.
 Usage: scripts/readme-shots.py   (writes docs/images/*.png)
@@ -14,7 +16,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from m3_helpers import ROOT, app, state  # noqa: E402
+from m3_helpers import ROOT, app, card_buttons, state  # noqa: E402
 
 OUT = os.path.join(ROOT, "docs", "images")
 SENTENCE = "I recieve your mail. Is it work?"
@@ -61,6 +63,11 @@ def window_frame(process, title):
     return x, y, x + w, y + h
 
 
+def click_first_fix():
+    bx, by, bw, bh = card_buttons()[0]
+    app(cmd="click", x=bx + bw / 2, y=by + bh / 2)
+
+
 def idle_seconds():
     out = subprocess.run(["ioreg", "-c", "IOHIDSystem"], capture_output=True, text=True).stdout
     return next(int(line.split()[-1]) // 1_000_000_000 for line in out.splitlines() if "HIDIdleTime" in line)
@@ -102,8 +109,7 @@ def main():
         if state().get("app") != "com.apple.TextEdit":
             sys.exit("TextEdit lost the focus; nothing typed")
         app(cmd="type", text=SENTENCE[-1])
-        s = until(state, lambda s: s.get("text") == SENTENCE and any(x["source"] == "llm" for x in s["suggestions"])
-                  and any(x["original"] == "recieve" for x in s["suggestions"]), 30)
+        s = until(state, lambda s: s.get("text") == SENTENCE and {"recieve", "Is it work?"} <= {x["original"] for x in s["suggestions"]}, 30)
         print("found:", [(x["original"], x["source"]) for x in s["suggestions"]])
         osascript('tell application "TextEdit" to set size of text of front document to 32')  # the typed "?" too
         time.sleep(1.5)
@@ -114,11 +120,28 @@ def main():
         app(cmd="click", x=x + w / 2, y=y + h - 1)
         until(state, lambda s: s["card"] == word["id"], 3)
         time.sleep(0.6)
-        shot("2-suggestion-card.png", *TEXTEDIT)
-        key(53)
+        shot("2-word-card.png", *TEXTEDIT)
+        click_first_fix()
+        until(state, lambda s: s.get("text") == "I receive your mail. Is it work?", 5)
+
+        # 3 + 4. The whole-sentence card, then the text with both fixes in.
+        s = until(state, lambda s: any(x["original"] == "Is it work?" for x in s["suggestions"]), 30)
+        whole = next(x for x in s["suggestions"] if x["original"] == "Is it work?")
+        x, y, w, h = whole["rect"]
+        app(cmd="click", x=x + w / 2, y=y + h - 1)
+        until(state, lambda s: s["card"] == whole["id"], 3)
+        time.sleep(0.6)
+        shot("3-sentence-card.png", *TEXTEDIT)
+        click_first_fix()
+        until(state, lambda s: s.get("text") == "I receive your mail. Does it work?", 5)
+        osascript('tell application "TextEdit" to set size of text of front document to 32')
+        time.sleep(1.5)
+        until(state, lambda s: not s["suggestions"], 10)
+        time.sleep(0.5)
+        shot("4-fixed.png", *TEXTEDIT)
         osascript('tell application "TextEdit" to close front document saving no')
 
-        # 3. Writing window over a terminal, with its own underlines. Opened by the hotkey only, no clicks.
+        # 5-7. A terminal: the Writing window with underlines, fixed with ⌥⏎, pasted back with ⌘⏎. No mouse clicks.
         osascript('tell application "Terminal"\nactivate\ndo script "clear"\nend tell')
         time.sleep(1.5)
         key(49, "control", "option")
@@ -134,21 +157,41 @@ def main():
         if not until(lambda: app(cmd="compose"), lambda c: c["key"], 3)["key"]:
             sys.exit("Writing window didn't get the focus; nothing typed")
         app(cmd="type", text=DRAFT)
-        s = until(state, lambda s: s.get("text") == DRAFT and any(x["source"] == "llm" for x in s["suggestions"])
-                  and any(x["source"] == "local" for x in s["suggestions"]), 30)
+        s = until(state, lambda s: s.get("text") == DRAFT and "Plese" in {x["original"] for x in s["suggestions"]}
+                  and any(x["original"].startswith("Is it work") for x in s["suggestions"]), 30)
         print("found:", [(x["original"], x["source"]) for x in s["suggestions"]])
         time.sleep(1)
-        shot("3-writing-window.png", *frame)
-        app(cmd="compose", text="", close=True)
+        shot("5-writing-window.png", *frame)
+        key(124, "command")  # line end, then back into "work"
+        for _ in range(6):
+            key(123)
+        until(state, lambda s: s["atCaret"], 3)
+        app(cmd="optionReturn")
+        until(lambda: app(cmd="compose"), lambda c: "Is it work" not in c["text"], 5)
+        key(123, "command")  # line start, then into "Plese"
+        for _ in range(2):
+            key(124)
+        until(state, lambda s: s["atCaret"], 3)
+        app(cmd="optionReturn")
+        fixed = until(lambda: app(cmd="compose"), lambda c: c["text"].startswith("Please"), 5)["text"]
+        until(state, lambda s: not s["suggestions"], 10)
+        time.sleep(1)
+        shot("6-writing-window-fixed.png", *frame)
+        key(36, "command")  # ⌘⏎ paste back
+        until(lambda: osascript('tell application "Terminal" to get contents of selected tab of front window'),
+              lambda t: fixed in t, 5)
+        time.sleep(0.8)
+        shot("7-pasted-in-terminal.png", *frame)
+        key(32, "control")  # ⌃U clears the prompt line, nothing is run
         osascript('tell application "Terminal" to close front window')
 
-        # 4. "My mistakes", filled with the sample log.
+        # 8. "My mistakes": the sample log plus the four fixes just made, newest first.
         osascript('tell application "System Events" to tell process "WritingAssistant"\n'
                   'click menu bar item 1 of menu bar 2\ndelay 0.5\n'
                   'click menu item "My mistakes…" of menu 1 of menu bar item 1 of menu bar 2\nend tell')
         until(lambda: app(cmd="mistakes"), lambda w: w["visible"], 3)
         time.sleep(0.8)
-        shot("4-my-mistakes.png", *map(int, window_frame("WritingAssistant", "My mistakes")))
+        shot("8-my-mistakes.png", *map(int, window_frame("WritingAssistant", "My mistakes")))
     finally:
         app(cmd="mistakes", close=True)
         app(cmd="compose", text="", close=True)

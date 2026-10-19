@@ -2,26 +2,52 @@
 
 A personal Grammarly replacement for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
 
-## How it works, in four pictures
+## How it works
 
-**1. Type anywhere, and mistakes get underlined.** Two kinds of fixes:
+There are two kinds of fixes:
 
-- **Word fix**, a red line under one word: "recieve" → "receive". Found instantly, on your Mac.
-- **Whole-sentence fix**, an orange line under the whole sentence: "Is it work?" → "Does it work?". Every word is spelled right, but the sentence is wrong. An AI model catches these.
+- **Word fix:** one word is wrong. "recieve" → "receive". A red line goes under the word. Found instantly, on your Mac.
+- **Whole-sentence fix:** every word is spelled right, but the sentence is wrong. "Is it work?" → "Does it work?". An orange line goes under the sentence. An AI model finds these.
 
-![Underlines in TextEdit](docs/images/1-underlines.png)
+### Story 1: writing in a normal app (Mail, Notes, Slack, Chrome, TextEdit…)
 
-**2. Click an underline to see the fix.** A small card shows the fix. Click it to apply it, or put the cursor in the word and press ⌥⏎.
+**Step 1. You type.** Both mistakes get underlined.
 
-![Suggestion card](docs/images/2-suggestion-card.png)
+![Mistakes underlined](docs/images/1-underlines.png)
 
-**3. In a terminal, use the Writing window.** Terminals (cmux, Terminal, iTerm) can't be checked directly. Press ⌃⌥Space to open a small window that stays on top, write there with full checking, then press ⌘⏎ to paste the text back where you were (or click Copy).
+**Step 2. Click the red word.** A card shows the fix. Click it (or press ⌥⏎).
 
-![Writing window over a terminal](docs/images/3-writing-window.png)
+![Word fix card](docs/images/2-word-card.png)
 
-**4. See every fix you accepted.** Menu bar icon → "My mistakes…" lists every fix with the app and the sentence, a "Most repeated" view, search, a type filter, delete and CSV export.
+**Step 3. Click the orange sentence.** A card shows the whole sentence, fixed. Click it.
 
-![My mistakes window](docs/images/4-my-mistakes.png)
+![Whole-sentence fix card](docs/images/3-sentence-card.png)
+
+**Step 4. Done.** Both fixes are in your text.
+
+![Text after both fixes](docs/images/4-fixed.png)
+
+### Story 2: writing in a terminal (cmux, Terminal, iTerm)
+
+The app can't check text inside a terminal directly. So you write in the Writing window instead.
+
+**Step 1. Press ⌃⌥Space and type.** A small window opens on top of the terminal. Mistakes get underlined there.
+
+![Writing window over a terminal](docs/images/5-writing-window.png)
+
+**Step 2. Fix them.** Put the cursor in a mistake and press ⌥⏎ (or click the underline).
+
+![Writing window after the fixes](docs/images/6-writing-window-fixed.png)
+
+**Step 3. Press ⌘⏎.** The window closes and the fixed text is pasted at your terminal prompt. Nothing runs until you press Enter. (Or click Copy instead.)
+
+![Fixed text pasted at the terminal prompt](docs/images/7-pasted-in-terminal.png)
+
+### Then: see every fix you accepted
+
+Menu bar icon → "My mistakes…". Every fix is saved: what you wrote, what it changed to, the app, and the sentence. The fixes from both stories are at the top. You can search, filter by type, see your most repeated mistakes, delete rows, and export to CSV.
+
+![My mistakes window](docs/images/8-my-mistakes.png)
 
 ## Shortcuts
 
