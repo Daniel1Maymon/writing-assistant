@@ -129,7 +129,8 @@ enum DebugServer {
             if let text = command["text"] as? String { compose.text = text }
             if command["close"] as? Bool == true { compose.close() }
             return reply(["ok": true, "visible": compose.isVisible, "key": compose.isKey, "text": compose.text,
-                          "previousApp": compose.previousApp?.bundleIdentifier ?? ""])
+                          "previousApp": compose.previousApp?.bundleIdentifier ?? "",
+                          "aboveFront": compose.isAbove(NSWorkspace.shared.frontmostApplication)])
         case "setLog":
             if let enabled = command["enabled"] as? Bool {
                 UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)

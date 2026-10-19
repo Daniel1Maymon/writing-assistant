@@ -24,6 +24,16 @@ final class ComposeWindowController: NSObject, NSWindowDelegate {
 
     var isKey: Bool { window?.isKeyWindow ?? false }
     var isVisible: Bool { window?.isVisible ?? false }
+
+    /// Whether the window is drawn above every window of `app` right now, from the window server's front-to-back list.
+    func isAbove(_ app: NSRunningApplication?) -> Bool {
+        guard let number = window?.windowNumber, let pid = app?.processIdentifier,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
+        let ours = list.firstIndex { $0[kCGWindowNumber as String] as? Int == number }
+        let theirs = list.firstIndex { $0[kCGWindowOwnerPID as String] as? pid_t == pid && $0[kCGWindowLayer as String] as? Int == 0 }
+        guard let ours else { return false }
+        return theirs.map { ours < $0 } ?? true
+    }
     var text: String {
         get { textView?.string ?? "" }
         set { makeWindow(); textView.string = newValue; textChanged() }
@@ -91,6 +101,10 @@ final class ComposeWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         window.onCancel = { [weak self] in self?.close() }
         window.setFrameAutosaveName("WritingWindow")
+        // Always in front, on every desktop and over full-screen apps (decision 0017).
+        window.level = .floating
+        window.hidesOnDeactivate = false
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let scroll = NSTextView.scrollableTextView()
         textView = scroll.documentView as? NSTextView
