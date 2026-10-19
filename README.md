@@ -1,6 +1,6 @@
 # Writing Assistant
 
-A personal Grammarly replacement for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
+A personal Grammarly alternative for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
 
 ## How it works
 
@@ -60,99 +60,145 @@ Menu bar icon → "My mistakes…". Every fix is saved: what you wrote, what it 
 
 ## Architecture
 
-### The big picture
+A native macOS menu-bar app (Swift, AppKit + SwiftUI). It reads and edits text in other apps through the **Accessibility API (AX)**, draws underlines in its own click-through window, and runs two checkers: **Harper** locally and an **LLM via OpenRouter**. No server of its own.
 
-Everything runs inside one menu-bar app on your Mac. The only thing that leaves your Mac is a finished sentence sent to the AI model.
-
-```
-                     You type in any app (Mail, Slack, Chrome, TextEdit…)
-                                         │
-                                         │  macOS Accessibility: "the text in this field changed"
-                                         ▼
- ┌───────────────────────────── Writing Assistant (menu-bar app) ──────────────────────────────┐
- │                                                                                             │
- │   ┌──────────────────┐        ┌──────────────────┐                                          │
- │   │ 1. Focus tracker │ ─────► │ 2. Checker       │                                          │
- │   │ which text box,  │        │ splits sentences,│                                          │
- │   │ its text, where  │        │ waits 400 ms     │                                          │
- │   │ words are drawn  │        │ after you stop   │                                          │
- │   └──────────────────┘        └───┬──────────┬───┘                                          │
- │                                   │          │  only finished sentences,                    │
- │                                   │          │  only within 10 s of a key press             │
- │                                   ▼          ▼                                              │
- │                  ┌─────────────────┐    ┌─────────────────┐                                 │
- │                  │ 3a. Tier 1      │    │ 3b. Tier 2      │         ┌────────────────────┐  │
- │                  │ Harper          │    │ AI model        │ ◄─────► │ OpenRouter (cloud) │  │
- │                  │ on your Mac     │    │ whole-sentence  │         │ deepseek-v4-flash  │  │
- │                  │ word fixes      │    │ fixes           │         │ fallback minimax-m3│  │
- │                  └────────┬────────┘    └────────┬────────┘         └────────────────────┘  │
- │                           └──────────┬───────────┘                                          │
- │                                      ▼                                                      │
- │                         ┌──────────────────────────┐                                        │
- │                         │ 4. Overlay               │  see-through window on top of the app, │
- │                         │ draws the underlines     │  so the app's text is never touched    │
- │                         └────────────┬─────────────┘                                        │
- │                                      │  you click an underline, or press ⌥⏎                 │
- │                                      ▼                                                      │
- │                         ┌──────────────────────────┐                                        │
- │                         │ 5. Card + Applier        │  writes the fix into the app           │
- │                         │                          │  (Accessibility; paste if that fails)  │
- │                         └────────────┬─────────────┘                                        │
- │                                      ▼                                                      │
- │                         ┌──────────────────────────┐        ┌──────────────────────┐        │
- │                         │ 6. Mistake log (SQLite)  │ ─────► │ "My mistakes" window │        │
- │                         └──────────────────────────┘        └──────────────────────┘        │
- └─────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### One sentence, step by step
-
-You type `I recieve your mail. Is it work?` in Mail.
-
-1. **Focus tracker** sees the text change (macOS Accessibility tells it), and reads the text and where each word is on screen.
-2. **Checker** splits the text into sentences. It waits until you stop typing for 400 ms, and only re-checks sentences that changed.
-3. **Tier 1 (Harper)** checks every changed sentence on your Mac, instantly and for free. It finds `recieve`.
-4. **Tier 2 (AI)** gets a sentence only when it looks finished (ends in `.` `?` `!` and your cursor has left it), and only if you pressed a key or clicked in the last 10 seconds. It finds `Is it work?` → `Does it work?`.
-5. **Overlay** draws both underlines in a see-through window that sits exactly over Mail.
-6. You click an underline. The **card** shows the fix. You click it (or press ⌥⏎).
-7. **Applier** writes the fix into Mail through Accessibility. If Mail ignores that, it pastes the fix instead and puts your clipboard back.
-8. **Mistake log** saves a row: what you wrote, the fix, the app and the sentence. "My mistakes" shows it.
-
-### The Writing window (for terminals)
-
-Terminals don't give a usable text box to Accessibility, so the app doesn't check them at all. Instead you write in a window that belongs to the app itself, and it goes through the same steps 1–8 as any other app.
+### Components
 
 ```
-   Terminal / cmux                                   Writing window (part of the app)
-   ┌──────────────────────┐      ⌃⌥Space opens       ┌────────────────────────────┐
-   │ % _                  │ ───────────────────────► │ Plese check my code.       │
-   │                      │                          │ Is it work now?            │
-   │                      │                          │    (checked: steps 1–8)    │
-   │ % Please check my    │ ◄─────────────────────── │ ⌘⏎ Paste back · Copy · Esc │
-   │   code. Does it work │   ⌘⏎: pastes the text,   └────────────────────────────┘
-   │   now?               │   gives your clipboard back.
-   └──────────────────────┘   Nothing runs until you press Enter.
+ Other apps (Mail, Slack, Chrome, TextEdit…)           Writing window (our own NSWindow, decision 0016)
+        │  AXObserver notifications                           │  forwards its own text/selection events
+        ▼                                                     ▼
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │ FocusTracker            AXKit/FocusTracker.swift                            │
+ │   follows the focused text element; emits .focusChanged / .valueChanged /   │
+ │   .geometryChanged. AXElement wraps AXUIElement (value, selection, bounds). │
+ └─────────────────────────────────────┬───────────────────────────────────────┘
+                                       ▼
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │ CheckController (@MainActor)   App/CheckController.swift   — the hub        │
+ │   DocumentState (Core): text → [Sentence] (NSRange, hash), diff → dirty     │
+ │   debounce 400 ms → tier 1 on dirty sentences; tier 2 near the caret        │
+ │   OptionReturnTap (CGEventTap): ⌥⏎ accept, ⌃⌥Space Writing window, key time │
+ │   NSEvent mouse monitors: clicks on underlines → card                       │
+ └───────┬─────────────────────────┬──────────────────────┬────────────────────┘
+         │                         │                      │
+         ▼                         ▼                      ▼
+ ┌──────────────────┐  ┌──────────────────────────┐  ┌─────────────────────────┐
+ │ HarperClient     │  │ TierTwoScheduler (Core)  │  │ OverlayController       │
+ │ (actor)          │  │ which sentences, cache,  │  │ borderless NSPanel,     │
+ │ harper-ls over   │  │ daily cap, retries,      │  │ click-through;          │
+ │ LSP on stdio     │  │ cancels stale requests   │  │ SquiggleView draws      │
+ │ → [Suggestion]   │  │ TierTwoRequest builds    │  │ marks at AX bounds,     │
+ │ (fallback:       │  │ body / parses JSON       │  │ redrawn every 100 ms    │
+ │ NSSpellChecker)  │  │        │                 │  └─────────────────────────┘
+ └──────────────────┘  │        ▼                 │  ┌─────────────────────────┐
+                       │ OpenRouterTransport      │  │ CardController (SwiftUI)│
+                       │ POST /chat/completions   │  │ fixes, Dismiss, Ignore  │
+                       │ models: [main, fallback] │  └────────────┬────────────┘
+                       └──────────────────────────┘               │ accept
+                                                                  ▼
+                       ┌──────────────────────────┐  ┌─────────────────────────┐
+                       │ MistakeLog (Core, SQLite)│◄─│ Applier                 │
+                       │ → MistakesWindow (SwiftUI│  │ AX setSelectedText;     │
+                       │   Table, search, CSV)    │  │ ⌘V paste fallback       │
+                       └──────────────────────────┘  └─────────────────────────┘
 ```
 
-It stays on top of every window, on every desktop.
+| Target | Contents | Depends on |
+| --- | --- | --- |
+| `Core/` (SwiftPM) | Pure logic, no AppKit, no network: `Sentence` segmenting + diff, `DocumentState`, `Suggestion`, merge rules, `TierTwoRequest`, `TierTwoScheduler`, `MistakeLog`, LSP framing | Foundation, SQLite3 |
+| `AXKit/` | `AXElement`, `FocusTracker` | ApplicationServices |
+| `App/` | The app: `CheckController`, `HarperClient`, `OpenRouterTransport`, `OverlayController`, `CardController`, `Applier`, `ComposeWindowController`, `MistakesWindowController`, menu (`WritingAssistantApp`, `AppState`) | Core, AXKit |
+| `Shared/` | `LineSocketServer` (debug socket) | |
+| `Fixtures/` | `FixtureApp`: a test app with known text fields, driven over its own socket | |
 
-### Where the code is
+### Flow of one keystroke
 
-| Folder | What's inside |
+Example: the user types the final `?` of `I recieve your mail. Is it work?` in Mail.
+
+```
+ user    Mail    FocusTracker      CheckController       HarperClient       TierTwoScheduler      OpenRouter       Overlay
+   │       │           │                  │                    │                    │                  │              │
+   │─ "?" ►│           │                  │                    │                    │                  │              │
+   │       │─ AXValue ►│                  │                    │                    │                  │              │
+   │       │           │─ .valueChanged ─►│                    │                    │                  │              │
+   │       │           │                  │ DocumentState      │                    │                  │              │
+   │       │           │                  │ .update(text)      │                    │                  │              │
+   │       │           │                  │──────────────── redraw (kept underlines follow the text) ────────────────►│
+   │       │           │                  │ 400 ms, no key     │                    │                  │              │
+   │       │           │                  │─ check(sentence) ─►│                    │                  │              │
+   │       │           │                  │◄ recieve→receive ──│                    │                  │              │
+   │       │           │                  │────────────────────── store + redraw: red underline ─────────────────────►│
+   │       │           │                  │─────── update(sentences, caret) ───────►│                  │              │
+   │       │           │                  │                    │                    │ finished? near   │              │
+   │       │           │                  │                    │                    │ caret? cached?   │              │
+   │       │           │                  │                    │                    │ under daily cap? │              │
+   │       │           │                  │                    │                    │────── POST ─────►│              │
+   │       │           │                  │                    │                    │◄── JSON edits ───│              │
+   │       │           │                  │◄──────────── onResult(...) ─────────────│                  │              │
+   │       │           │                  │─────────────────── storeLLM + redraw: orange underline ──────────────────►│
+   │       │           │                  │                    │                    │                  │              │
+```
+
+Then, on accept (click on the card, or ⌥⏎ caught by `OptionReturnTap`):
+
+1. `CheckController.replace` calls `Applier.apply`. It checks that the text at the range is still the original, then sets the AX selection to that range and sets `AXSelectedText`.
+2. It waits up to 200 ms for the field's value to change. Some apps accept the AX call and do nothing. In that case it selects the range and pastes with ⌘V, then restores the clipboard.
+3. On success, a `MistakeEntry` (app, sentence, original, replacement, category, source) is written to `MistakeLog` and `.mistakeRecorded` is posted, so an open "My mistakes" window reloads.
+
+### Key rules in the flow
+
+- **Offsets are UTF-16 `NSRange` everywhere**, to match AX and `NSString`.
+- **Sentences are the unit of work.** Results are stored by sentence hash, so editing one sentence only re-checks that one. Underlines on the others are kept and moved.
+- **Tier 2 is gated** (decisions 0010, 0013, 0014). A sentence is sent only when:
+  - it looks finished: it ends in `.?!` and the caret has left it,
+  - it is within 2 sentences of the caret,
+  - there was a real key press or click in the last 10 s,
+  - and the daily request cap is not reached.
+  Results are cached (500 sentences). A request whose sentence changed is cancelled.
+- **Merge** (decision 0008): on the same word, the model's fix comes first and Harper's are alternatives. Model edits that only partly overlap a Harper fix are dropped.
+- **Terminals are not checked** (cmux, Terminal, iTerm2, Ghostty, Warp). Use the Writing window there.
+- **Never touched:** secure (password) fields. Diagnostic logs never contain user text.
+
+### Threading
+
+| What | Where it runs |
 | --- | --- |
-| `App/` | The menu-bar app: checker, overlay, card, applier, Writing window, "My mistakes" window, Harper and OpenRouter clients |
-| `AXKit/` | Talking to macOS Accessibility: following the focused text box, reading its text and word positions |
-| `Core/` | Pure logic with no UI and no network, unit-tested: sentences, suggestions, the AI request and reply, the tier-2 scheduler, the mistake log |
-| `Fixtures/` | A small test app the automated tests type into |
-| `scripts/` | Install script and end-to-end tests that drive the real installed app |
-| `docs/decisions/` | One file per design choice, with the reason |
+| `CheckController`, `FocusTracker`, overlay, card, windows | Main actor. AX callbacks arrive on the main run loop. |
+| `HarperClient` | Swift `actor`. Owns the `harper-ls` process and reads its stdout on a background reader. |
+| `TierTwoScheduler` | Main actor. Each request is a `Task`; the network call is `URLSession` async. |
+| `OptionReturnTap` | `CGEventTap` on the session event tap. Swallows ⌥⏎ only when there's a suggestion at the caret, and ⌃⌥Space always. |
+| Timers | 100 ms redraw (catches scrolling, which has no AX event); 1 s tier-2 re-check (catches the caret leaving a sentence by a click). |
 
-### Privacy and cost
+### The Writing window (decision 0016)
 
-- Password fields are never read.
-- Tier 1 never leaves your Mac. Tier 2 sends only the finished sentence and the sentence on each side.
-- Tier 2 runs only right after you type or click, and there's a daily request cap, so the AI bill stays small.
-- Diagnostic logs never contain your text. The mistake log is the one exception: it's a local file you can switch off in the menu ("Save accepted fixes").
+Terminals don't expose a usable text element, so the app hosts its own: `ComposeWindowController`. It's a floating `NSWindow` with an `NSTextView`, shown on all Spaces (decision 0017).
+
+- `FocusTracker.allowsOwnApp` lets the tracker attach to our own process while the window is key.
+- macOS sends no AX notifications to a process about its own elements. So the window forwards its own text and selection changes to `FocusTracker.forward`, which feeds the normal pipeline.
+- Those events are forwarded **asynchronously**. Accepting a fix sets the selection through AX on our own process, and reading AX again from inside that call deadlocks.
+- ⌘⏎ saves the clipboard, activates the previous app, waits until it's frontmost, posts ⌘V, then restores the clipboard.
+
+### Testing
+
+| Level | How | Run |
+| --- | --- | --- |
+| Unit | Swift Testing on `Core` (sentences, merge, LLM request/parse, scheduler, mistake log) | `swift test --package-path Core` |
+| Integration | `FixtureApp` + debug socket `/tmp/wa-debug.sock` (debug builds only): `state`, `type` (real key events), `click`, `optionReturn`, `compose`, `mistakes`… | `scripts/*-check.py` |
+| Real app | The same scripts against the **installed** app in TextEdit and Terminal, with real key presses | e.g. `scripts/compose-check.py` |
+
+Rules for changes (see `CLAUDE.md`): update the test list in `PLAN.md` first, write non-obvious choices to `docs/decisions/`, and only call something working once it's been seen working in a real app.
+
+### Configuration
+
+Debug builds read `.env` (git-ignored) first. The key falls back to the Keychain in every build.
+
+| Key | In `.env` (what runs today) | Default in code if not set |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | your key | Keychain, set from the menu ("Set OpenRouter Key…") |
+| `OPENROUTER_MODEL` | `deepseek/deepseek-v4-flash` (decision 0011) | `anthropic/claude-haiku-5.5` |
+| `OPENROUTER_FALLBACK_MODEL` | `minimax/minimax-m3` (decision 0012) | `openai/gpt-6-luna` |
+| `DAILY_REQUEST_CAP` | `1000` | `1000` |
 
 ## Build and install
 
