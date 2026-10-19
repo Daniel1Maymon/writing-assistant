@@ -2,21 +2,6 @@
 
 A personal Grammarly alternative for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
 
-## The menu bar icon
-
-The app has no Dock icon. It's this pen icon in the menu bar:
-
-![Menu bar icon](docs/images/0-menu-bar-icon.png)
-
-Click it to open the menu. From here you can:
-
-- see that macOS gave it Accessibility access (it needs this to read your text),
-- turn "Launch at Login" and "Save accepted fixes" on or off,
-- open "My mistakes…",
-- see today's AI use (checks and cost) and change the OpenRouter key.
-
-![The menu](docs/images/0-menu.png)
-
 ## How it works
 
 There are two kinds of fixes:
@@ -63,6 +48,21 @@ The app can't check text inside a terminal directly. So you write in the Writing
 Menu bar icon → "My mistakes…". Every fix is saved: what you wrote, what it changed to, the app, and the sentence. The fixes from both stories are at the top. You can search, filter by type, see your most repeated mistakes, delete rows, and export to CSV.
 
 ![My mistakes window](docs/images/8-my-mistakes.png)
+
+## The menu bar icon
+
+The app has no Dock icon. It's this pen icon in the menu bar:
+
+![Menu bar icon](docs/images/0-menu-bar-icon.png)
+
+Click it to open the menu. From here you can:
+
+- see that macOS gave it Accessibility access (it needs this to read your text),
+- turn "Launch at Login" and "Save accepted fixes" on or off,
+- open "My mistakes…",
+- see today's AI use (checks and cost) and change the OpenRouter key.
+
+![The menu](docs/images/0-menu.png)
 
 ## Shortcuts
 
