@@ -108,18 +108,42 @@ public final class MistakeLog {
         return sqlite3_last_insert_rowid(db)
     }
 
-    /// Newest first.
-    public func recent(limit: Int = 100, category: SuggestionCategory? = nil) throws -> [MistakeEntry] {
-        let filter = category == nil ? "" : "WHERE category = ?"
+    /// Newest first. `search` matches the sentence, the original or the replacement, ignoring case (decision 0015).
+    public func recent(limit: Int = 100, category: SuggestionCategory? = nil, search: String = "") throws -> [MistakeEntry] {
+        var conditions: [String] = []
+        var values: [String] = []
+        if let category {
+            conditions.append("category = ?")
+            values.append(category.rawValue)
+        }
+        let search = search.trimmingCharacters(in: .whitespaces)
+        if !search.isEmpty {
+            conditions.append("(sentence LIKE ? ESCAPE '\\' OR original LIKE ? ESCAPE '\\' OR replacement LIKE ? ESCAPE '\\')")
+            let pattern = "%" + search.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "%"
+            values += [pattern, pattern, pattern]
+        }
+        let filter = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
         let statement = try prepare("SELECT * FROM mistakes \(filter) ORDER BY createdAt DESC, id DESC LIMIT ?")
         defer { sqlite3_finalize(statement) }
-        var index: Int32 = 1
-        if let category {
-            bind(category.rawValue, to: statement, at: index)
-            index += 1
+        for (index, value) in values.enumerated() {
+            bind(value, to: statement, at: Int32(index + 1))
         }
-        sqlite3_bind_int64(statement, index, Int64(limit))
+        sqlite3_bind_int64(statement, Int32(values.count + 1), Int64(limit))
         return try rows(statement, map: entry(from:))
+    }
+
+    public func count() throws -> Int {
+        let statement = try prepare("SELECT COUNT(*) FROM mistakes")
+        defer { sqlite3_finalize(statement) }
+        return try rows(statement) { Int(sqlite3_column_int64($0, 0)) }.first ?? 0
+    }
+
+    public func delete(id: Int64) throws {
+        let statement = try prepare("DELETE FROM mistakes WHERE id = ?")
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else { throw lastError() }
     }
 
     /// Grouped by lower-cased `original → replacement`, most frequent first.

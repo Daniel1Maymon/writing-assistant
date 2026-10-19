@@ -60,6 +60,34 @@ private func entry(_ original: String, _ replacement: String, category: Suggesti
         #expect(csv.hasSuffix("\r\n"))
     }
 
+    @Test func searchMatchesSentenceOriginalOrReplacementIgnoringCaseAndCombinesWithCategory() throws {
+        let log = try MistakeLog(url: tempURL())
+        try log.record(entry("teh", "the", sentence: "Teh cat sat.", at: 1))
+        try log.record(entry("has", "have", category: .grammar, sentence: "They has a DOG.", at: 2))
+        try log.record(entry("recieve", "receive", sentence: "I recieve mail.", at: 3))
+        try log.record(entry("100%", "100 %", sentence: "It is 100% done.", at: 4))
+
+        #expect(try log.recent(search: "dog").map(\.original) == ["has"])
+        #expect(try log.recent(search: "RECEIVE").map(\.original) == ["recieve"])
+        #expect(try log.recent(search: "TEH").map(\.original) == ["teh"])
+        #expect(try log.recent(search: "  ").count == 4)
+        #expect(try log.recent(search: "%").map(\.original) == ["100%"])
+        #expect(try log.recent(search: "_").isEmpty)
+        #expect(try log.recent(category: .grammar, search: "cat").isEmpty)
+        #expect(try log.recent(category: .spelling, search: "cat").map(\.original) == ["teh"])
+    }
+
+    @Test func deleteRemovesOneRowAndCountCountsAll() throws {
+        let log = try MistakeLog(url: tempURL())
+        let keep = try log.record(entry("a", "b", at: 1))
+        let gone = try log.record(entry("c", "d", at: 2))
+        #expect(try log.count() == 2)
+
+        try log.delete(id: gone)
+        #expect(try log.recent().map(\.id) == [keep])
+        #expect(try log.count() == 1)
+    }
+
     @Test func deleteAllEmptiesTheLog() throws {
         let log = try MistakeLog(url: tempURL())
         try log.record(entry("a", "b"))

@@ -10,6 +10,7 @@ import json
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 SENTENCE = "I recieve the mail every day. She dont like teh rain."
@@ -67,6 +68,14 @@ def card_buttons():
 
 
 def main():
+    app(cmd="setLog", path=tempfile.mkdtemp(prefix="wa-real-app-") + "/mistakes.sqlite")  # keep the real log clean
+    try:
+        return run()
+    finally:
+        app(cmd="setLog", path="")
+
+
+def run():
     bundle = sys.argv[1]
     passthrough = "--no-passthrough" not in sys.argv
     results = []

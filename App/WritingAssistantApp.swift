@@ -46,6 +46,7 @@ struct MenuContent: View {
             get: { state.saveAcceptedFixes },
             set: { state.setSaveAcceptedFixes($0) }
         ))
+        Button("My mistakes…") { state.showMistakes() }
         if let error = state.launchAtLoginError {
             Text("Login item error: \(error)")
         }

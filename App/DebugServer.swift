@@ -98,6 +98,31 @@ enum DebugServer {
         case "resetIgnore":
             controller.resetIgnore()
             return reply(["ok": true])
+        case "mistakes":
+            // The "My mistakes" window (decision 0015). Optional: search, category ("" = all), view, delete [ids],
+            // export path, snapshot dir, close. Replies with what the window shows.
+            guard let window = AppState.shared?.mistakesWindow else { return reply(["ok": false]) }
+            let model = window.model
+            if let search = command["search"] as? String { model.search = search }
+            if let category = command["category"] as? String { model.category = SuggestionCategory(rawValue: category) }
+            if let view = command["view"] as? String, let v = MistakesModel.View(rawValue: view) { model.view = v }
+            if let ids = command["delete"] as? [Int] { model.delete(Set(ids.map { Int64($0) })) }
+            var extra: [String: Any] = [:]
+            if let path = command["export"] as? String {
+                extra["exported"] = (try? model.exportCSV(to: URL(fileURLWithPath: path))) != nil
+            }
+            if let dir = command["snapshot"] as? String, let png = window.snapshotPNG {
+                let file = URL(fileURLWithPath: dir).appendingPathComponent("mistakes.png")
+                extra["snapshot"] = (try? png.write(to: file)) != nil ? file.path : nil
+            }
+            if command["close"] as? Bool == true { window.close() }
+            return reply(extra.merging([
+                "ok": true, "visible": window.isVisible, "total": model.total, "error": model.error ?? NSNull(),
+                "view": model.view.rawValue, "search": model.search, "category": model.category?.rawValue ?? "",
+                "rows": model.rows.map { ["id": $0.id ?? -1, "original": $0.original, "replacement": $0.replacement,
+                                          "category": $0.category.rawValue, "sentence": $0.sentence, "app": $0.appName] },
+                "repeated": model.repeated.map { ["original": $0.original, "replacement": $0.replacement, "count": $0.count] },
+            ]) { a, _ in a })
         case "setLog":
             if let enabled = command["enabled"] as? Bool {
                 UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)

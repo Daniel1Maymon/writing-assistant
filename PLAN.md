@@ -232,6 +232,10 @@ Exit: green + eval done.
 ## M5 — Wider app support + polish (3 days)
 
 Build: `AXManualAccessibility` / `AXEnhancedUserInterface` for Electron/Chromium; badge-only mode when bounds unavailable; global hotkey "check selection" for Google Docs; per-app exclusions; on/off switch for "natural wording" rewrites; cost display; app icon; release build reading key from Keychain only; "My mistakes…" window (list, filter by category, most-repeated view, Export CSV) + Settings toggle and "Delete all".
+"My mistakes…" window, built first (decision 0015). Tests:
+- Core (unit): `recent(search:)` matches the sentence, what was written or the fix, ignoring case, and combines with the category filter; `delete(id:)` removes one row only; `count()` counts all rows.
+- Installed app, automated (`scripts/mistakes-window-check.py`, temp log): menu item "My mistakes…" opens the window; it lists the temp log's rows newest first; accepting a fix in the fixture while the window is open adds it at the top without reopening; search and the category filter narrow the list; deleting a row removes it from the file; Export CSV writes a file with the header and every row.
+- Verified manually only: how the window looks (screen capture is blocked here, so a debug snapshot PNG is checked instead).
 Tests: full manual matrix above — every app gets layer 1, 2 or 3 and none gets nothing; excluded app → zero checks and zero mistake-log rows; accepting a fix via the hotkey popover and accepting a sentence rewrite both log a row; the exported CSV opens cleanly in Numbers.
 Exit: one week of daily use; every false positive / miss logged into `eval/golden.jsonl`.
 

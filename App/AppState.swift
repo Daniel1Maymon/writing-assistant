@@ -26,6 +26,11 @@ final class AppState: ObservableObject {
     private(set) var env: [String: String] = [:]
     private var permissionTimer: Timer?
     private var checker: CheckController?
+    private(set) lazy var mistakesWindow = MistakesWindowController { [weak self] in
+        self?.checker?.mistakeLogURL ?? MistakeLog.defaultURL
+    }
+
+    func showMistakes() { mistakesWindow.show() }
 
     func start() {
         Self.shared = self

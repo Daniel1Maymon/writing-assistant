@@ -331,6 +331,7 @@ extension CheckController: CardActions {
             if mistakeLog == nil { mistakeLog = try MistakeLog(url: mistakeLogURL) }
             _ = try mistakeLog?.record(entry)
             counters.mistakesLogged += 1
+            NotificationCenter.default.post(name: .mistakeRecorded, object: nil)
         } catch {
             mistakeLog = nil
             counters.mistakeLogFailures += 1
