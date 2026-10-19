@@ -92,12 +92,61 @@ struct AXElement: Equatable, @unchecked Sendable {
             guard let markers = markerRange(range) else { return nil }
             return axValue(parameterized("AXBoundsForTextMarkerRange", markers), .cgRect, CGRect.zero)
         }
+        let own = rangeBounds(range)
+        if let own, own.height > 0 { return own }
+        return boundsFromTextPieces(range) ?? own
+    }
+
+    private func rangeBounds(_ range: NSRange) -> CGRect? {
         var cfRange = CFRange(location: range.location, length: range.length)
         guard let param = AXValueCreate(.cfRange, &cfRange) else { return nil }
         var value: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(ref, "AXBoundsForRange" as CFString, param, &value) == .success
         else { return nil }
         return axValue(value, .cgRect, CGRect.zero)
+    }
+
+    // MARK: Chromium content-editable fields (decision 0018)
+
+    /// Slack's message box answers every range with an empty rect; the `AXStaticText` pieces inside it give real
+    /// ones. Each piece is found in the field's value in order, and the pieces covering `range` are asked instead.
+    private func boundsFromTextPieces(_ range: NSRange) -> CGRect? {
+        guard let text = value.map({ $0 as NSString }) else { return nil }
+        var budget = 200
+        var cursor = 0
+        var result: CGRect?
+        for piece in staticTexts(budget: &budget) {
+            guard let pieceText = piece.raw("AXValue") as? String, !pieceText.isEmpty, cursor <= text.length else { continue }
+            let found = text.range(of: pieceText, range: NSRange(location: cursor, length: text.length - cursor))
+            guard found.location != NSNotFound else { continue }
+            cursor = NSMaxRange(found)
+            let start = max(range.location, found.location)
+            let end = min(NSMaxRange(range), NSMaxRange(found))
+            guard end > start || (range.length == 0 && start == end) else { continue }
+            guard let rect = piece.rangeBounds(NSRange(location: start - found.location, length: end - start)),
+                  rect.height > 0 else { continue }
+            result = result.map { $0.union(rect) } ?? rect
+            if NSMaxRange(range) <= NSMaxRange(found) { break }
+        }
+        return result
+    }
+
+    /// The `AXStaticText` elements under this one, in reading order; walks at most `budget` elements.
+    private func staticTexts(budget: inout Int) -> [AXElement] {
+        guard budget > 0, let children = raw("AXChildren") as? [AXUIElement] else { return [] }
+        var found: [AXElement] = []
+        for child in children.map(AXElement.init(ref:)) {
+            budget -= 1
+            if budget <= 0 { break }
+            if child.role == "AXStaticText" { found.append(child) } else { found += child.staticTexts(budget: &budget) }
+        }
+        return found
+    }
+
+    /// Asks an Electron/Chromium app to build its full accessibility tree, as assistive apps do (decision 0018).
+    /// Other apps return an error, which doesn't matter.
+    func enableManualAccessibility() {
+        AXUIElementSetAttributeValue(ref, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     }
 
     // MARK: WebKit text markers (decision 0009)

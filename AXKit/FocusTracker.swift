@@ -100,6 +100,7 @@ final class FocusTracker {
         }
         observer = created
         appElement = .application(pid)
+        if pid != getpid() { appElement!.enableManualAccessibility() }
         addAppNotification(created, appElement!)
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
         refreshFocus()
