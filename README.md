@@ -58,12 +58,101 @@ Menu bar icon → "My mistakes…". Every fix is saved: what you wrote, what it 
 | ⌘⏎ (in the Writing window) | Paste the text back into the app you came from |
 | Esc (in the Writing window) | Close it and keep the draft |
 
-## What's under the hood
+## Architecture
 
-- **Tier 1, on your Mac:** [Harper](https://writewithharper.com) checks spelling and grammar locally, in milliseconds, for free.
-- **Tier 2, AI:** sentences go to an AI model via OpenRouter (`deepseek/deepseek-v4-flash`, falling back to `minimax/minimax-m3`). This happens only right after you type, so it costs a few dollars a month at most.
-- **Mistake log:** a SQLite file on your Mac (`mistakes.sqlite`). It can be turned off in the menu ("Save accepted fixes").
-- **Privacy:** no accounts, no server of its own. Diagnostic logs never contain your text.
+### The big picture
+
+Everything runs inside one menu-bar app on your Mac. The only thing that leaves your Mac is a finished sentence sent to the AI model.
+
+```
+                     You type in any app (Mail, Slack, Chrome, TextEdit…)
+                                         │
+                                         │  macOS Accessibility: "the text in this field changed"
+                                         ▼
+ ┌───────────────────────────── Writing Assistant (menu-bar app) ──────────────────────────────┐
+ │                                                                                             │
+ │   ┌──────────────────┐        ┌──────────────────┐                                          │
+ │   │ 1. Focus tracker │ ─────► │ 2. Checker       │                                          │
+ │   │ which text box,  │        │ splits sentences,│                                          │
+ │   │ its text, where  │        │ waits 400 ms     │                                          │
+ │   │ words are drawn  │        │ after you stop   │                                          │
+ │   └──────────────────┘        └───┬──────────┬───┘                                          │
+ │                                   │          │  only finished sentences,                    │
+ │                                   │          │  only within 10 s of a key press             │
+ │                                   ▼          ▼                                              │
+ │                  ┌─────────────────┐    ┌─────────────────┐                                 │
+ │                  │ 3a. Tier 1      │    │ 3b. Tier 2      │         ┌────────────────────┐  │
+ │                  │ Harper          │    │ AI model        │ ◄─────► │ OpenRouter (cloud) │  │
+ │                  │ on your Mac     │    │ whole-sentence  │         │ deepseek-v4-flash  │  │
+ │                  │ word fixes      │    │ fixes           │         │ fallback minimax-m3│  │
+ │                  └────────┬────────┘    └────────┬────────┘         └────────────────────┘  │
+ │                           └──────────┬───────────┘                                          │
+ │                                      ▼                                                      │
+ │                         ┌──────────────────────────┐                                        │
+ │                         │ 4. Overlay               │  see-through window on top of the app, │
+ │                         │ draws the underlines     │  so the app's text is never touched    │
+ │                         └────────────┬─────────────┘                                        │
+ │                                      │  you click an underline, or press ⌥⏎                 │
+ │                                      ▼                                                      │
+ │                         ┌──────────────────────────┐                                        │
+ │                         │ 5. Card + Applier        │  writes the fix into the app           │
+ │                         │                          │  (Accessibility; paste if that fails)  │
+ │                         └────────────┬─────────────┘                                        │
+ │                                      ▼                                                      │
+ │                         ┌──────────────────────────┐        ┌──────────────────────┐        │
+ │                         │ 6. Mistake log (SQLite)  │ ─────► │ "My mistakes" window │        │
+ │                         └──────────────────────────┘        └──────────────────────┘        │
+ └─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### One sentence, step by step
+
+You type `I recieve your mail. Is it work?` in Mail.
+
+1. **Focus tracker** sees the text change (macOS Accessibility tells it), and reads the text and where each word is on screen.
+2. **Checker** splits the text into sentences. It waits until you stop typing for 400 ms, and only re-checks sentences that changed.
+3. **Tier 1 (Harper)** checks every changed sentence on your Mac, instantly and for free. It finds `recieve`.
+4. **Tier 2 (AI)** gets a sentence only when it looks finished (ends in `.` `?` `!` and your cursor has left it), and only if you pressed a key or clicked in the last 10 seconds. It finds `Is it work?` → `Does it work?`.
+5. **Overlay** draws both underlines in a see-through window that sits exactly over Mail.
+6. You click an underline. The **card** shows the fix. You click it (or press ⌥⏎).
+7. **Applier** writes the fix into Mail through Accessibility. If Mail ignores that, it pastes the fix instead and puts your clipboard back.
+8. **Mistake log** saves a row: what you wrote, the fix, the app and the sentence. "My mistakes" shows it.
+
+### The Writing window (for terminals)
+
+Terminals don't give a usable text box to Accessibility, so the app doesn't check them at all. Instead you write in a window that belongs to the app itself, and it goes through the same steps 1–8 as any other app.
+
+```
+   Terminal / cmux                                   Writing window (part of the app)
+   ┌──────────────────────┐      ⌃⌥Space opens       ┌────────────────────────────┐
+   │ % _                  │ ───────────────────────► │ Plese check my code.       │
+   │                      │                          │ Is it work now?            │
+   │                      │                          │    (checked: steps 1–8)    │
+   │ % Please check my    │ ◄─────────────────────── │ ⌘⏎ Paste back · Copy · Esc │
+   │   code. Does it work │   ⌘⏎: pastes the text,   └────────────────────────────┘
+   │   now?               │   gives your clipboard back.
+   └──────────────────────┘   Nothing runs until you press Enter.
+```
+
+It stays on top of every window, on every desktop.
+
+### Where the code is
+
+| Folder | What's inside |
+| --- | --- |
+| `App/` | The menu-bar app: checker, overlay, card, applier, Writing window, "My mistakes" window, Harper and OpenRouter clients |
+| `AXKit/` | Talking to macOS Accessibility: following the focused text box, reading its text and word positions |
+| `Core/` | Pure logic with no UI and no network, unit-tested: sentences, suggestions, the AI request and reply, the tier-2 scheduler, the mistake log |
+| `Fixtures/` | A small test app the automated tests type into |
+| `scripts/` | Install script and end-to-end tests that drive the real installed app |
+| `docs/decisions/` | One file per design choice, with the reason |
+
+### Privacy and cost
+
+- Password fields are never read.
+- Tier 1 never leaves your Mac. Tier 2 sends only the finished sentence and the sentence on each side.
+- Tier 2 runs only right after you type or click, and there's a daily request cap, so the AI bill stays small.
+- Diagnostic logs never contain your text. The mistake log is the one exception: it's a local file you can switch off in the menu ("Save accepted fixes").
 
 ## Build and install
 
