@@ -11,6 +11,8 @@ final class FocusTracker {
     enum Event { case focusChanged, valueChanged, geometryChanged }
 
     var onEvent: ((Event) -> Void)?
+    /// True while our own Writing window is the key window: then our process counts as an app to check (decision 0016).
+    var allowsOwnApp: () -> Bool = { false }
     private(set) var focused: AXElement?
     private(set) var app: NSRunningApplication?
 
@@ -84,8 +86,8 @@ final class FocusTracker {
 
     private func attach(to app: NSRunningApplication?) {
         detach()
-        // Our own menu doesn't count as typing somewhere: keep nothing focused.
-        guard let app, app.processIdentifier != getpid() else {
+        // Our own menu doesn't count as typing somewhere: keep nothing focused. The Writing window does.
+        guard let app, app.processIdentifier != getpid() || allowsOwnApp() else {
             onEvent?(.focusChanged)
             return
         }
@@ -132,6 +134,17 @@ final class FocusTracker {
         }
         watchedElement = nil
         watchedWindow = nil
+    }
+
+    /// Re-attaches to whatever is in front, e.g. when our own window gains or loses focus without an app switch.
+    func reattach() {
+        attach(to: NSWorkspace.shared.frontmostApplication)
+    }
+
+    /// Changes our own window reports, since AX doesn't notify a process about itself.
+    func forward(_ event: Event) {
+        guard app?.processIdentifier == getpid() else { return }
+        onEvent?(event)
     }
 
     fileprivate func handle(_ notification: String) {

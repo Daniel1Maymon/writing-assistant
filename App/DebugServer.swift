@@ -123,6 +123,13 @@ enum DebugServer {
                                           "category": $0.category.rawValue, "sentence": $0.sentence, "app": $0.appName] },
                 "repeated": model.repeated.map { ["original": $0.original, "replacement": $0.replacement, "count": $0.count] },
             ]) { a, _ in a })
+        case "compose":
+            // The Writing window (decision 0016). Optional: text (sets the draft), close. Replies with its state.
+            let compose = controller.compose
+            if let text = command["text"] as? String { compose.text = text }
+            if command["close"] as? Bool == true { compose.close() }
+            return reply(["ok": true, "visible": compose.isVisible, "key": compose.isKey, "text": compose.text,
+                          "previousApp": compose.previousApp?.bundleIdentifier ?? ""])
         case "setLog":
             if let enabled = command["enabled"] as? Bool {
                 UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)

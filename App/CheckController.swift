@@ -39,6 +39,8 @@ final class CheckController {
 
     private let card = CardController()
     private var mouseMonitor: Any?
+    private var localMouseMonitor: Any?
+    let compose = ComposeWindowController()
     private var hotKey: OptionReturnTap?
     private(set) var ignore: IgnoreList
     private let ignoreURL: URL
@@ -70,6 +72,9 @@ final class CheckController {
         UserDefaults.standard.register(defaults: [Self.saveFixesKey: true])
         card.actions = self
         tracker.onEvent = { [weak self] event in self?.handle(event) }
+        tracker.allowsOwnApp = { [weak self] in self?.compose.isKey ?? false }
+        compose.onTextEvent = { [weak self] event in self?.tracker.forward(event) }
+        compose.onFocusChange = { [weak self] in self?.tracker.reattach() }
         tracker.start()
         // A global monitor sees clicks in other apps and lets them through; the overlay stays click-through.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
@@ -79,7 +84,19 @@ final class CheckController {
                 self?.clicked(at: point)
             }
         }
+        // The global monitor never sees clicks in our own windows; the Writing window needs them for the card.
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            let point = NSEvent.mouseLocation
+            MainActor.assumeIsolated {
+                if let self, event.window != nil, event.window === self.compose.window {
+                    self.lastInput = .now
+                    self.clicked(at: point)
+                }
+            }
+            return event
+        }
         hotKey = OptionReturnTap { [weak self] in self?.optionReturn() ?? false }
+        hotKey?.onCompose = { [weak self] in self?.compose.toggle() }
         hotKey?.onKeyDown = { [weak self] in self?.lastInput = .now }
         if hotKey?.start() != true {
             log.error("Option-Return tap could not start")
@@ -318,7 +335,8 @@ extension CheckController: CardActions {
         }
         if UserDefaults.standard.bool(forKey: Self.saveFixesKey) {
             record(MistakeEntry(createdAt: Date(), appBundleId: app?.bundleIdentifier ?? "",
-                                appName: app?.localizedName ?? "", sentence: sentence?.text ?? original,
+                                appName: app?.processIdentifier == getpid() ? ComposeWindowController.title
+                                    : app?.localizedName ?? "", sentence: sentence?.text ?? original,
                                 original: original, replacement: replacement, category: category,
                                 message: message, ruleId: ruleId, source: source))
         }
@@ -390,6 +408,8 @@ final class OptionReturnTap {
     private var tap: CFMachPort?
     /// Every key press, swallowed or not.
     var onKeyDown: (() -> Void)?
+    /// ⌃⌥Space: open or close the Writing window (decision 0016). Always swallowed.
+    var onCompose: (() -> Void)?
 
     init(handler: @escaping () -> Bool) { self.handler = handler }
 
@@ -421,6 +441,10 @@ final class OptionReturnTap {
         }
         if type == CGEventType.keyDown.rawValue { onKeyDown?() }
         let modifiers = CGEventFlags(rawValue: flags).intersection([.maskAlternate, .maskCommand, .maskControl, .maskShift])
+        if type == CGEventType.keyDown.rawValue, key == 49, modifiers == [.maskControl, .maskAlternate], let onCompose {
+            DispatchQueue.main.async { onCompose() }  // not inside the tap callback, which must return fast
+            return true
+        }
         return type == CGEventType.keyDown.rawValue && (key == 36 || key == 76) && modifiers == .maskAlternate && handler()
     }
 }

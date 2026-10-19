@@ -26,6 +26,20 @@ SEED = [  # (createdAt, app, sentence, original, replacement, category)
 ]
 
 
+# Position and size of the window's search box, found by walking its Accessibility tree.
+SEARCH_FIELD = """
+const p = Application("System Events").processes.byName("WritingAssistant");
+function find(e, depth) {
+  if (depth > 6) return null;
+  try { if (e.role() === "AXTextField") return e; } catch (x) { return null; }
+  for (const child of e.uiElements()) { const hit = find(child, depth + 1); if (hit) return hit; }
+  return null;
+}
+const field = find(p.windows.byName("My mistakes"), 0);
+field ? field.position().concat(field.size()).join(",") : "";
+"""
+
+
 def check(number, name, ok, detail=""):
     results.append(ok)
     print(f"{'PASS' if ok else 'FAIL'}  {number}. {name}" + (f"  ({detail})" if detail else ""))
@@ -100,9 +114,8 @@ def main():
                   'click menu bar item 1 of menu bar 2\ndelay 0.5\n'
                   'click menu item "My mistakes…" of menu 1 of menu bar item 1 of menu bar 2\nend tell')
         time.sleep(0.5)
-        out = osascript('tell application "System Events" to tell process "WritingAssistant" to get {position, size} of '
-                        '(first UI element of (entire contents of window "My mistakes") whose role is "AXTextField")').stdout
-        nums = [float(n) for n in out.replace("{", "").replace("}", "").split(",") if n.strip()]
+        out = subprocess.run(["osascript", "-l", "JavaScript", "-e", SEARCH_FIELD], capture_output=True, text=True).stdout
+        nums = [float(n) for n in out.split(",") if n.strip()]
         if len(nums) == 4:
             app(cmd="click", x=nums[0] + nums[2] / 2, y=nums[1] + nums[3] / 2)
             time.sleep(0.3)
@@ -113,8 +126,10 @@ def main():
 
         # 5. Type filter, combined with no search.
         w = app(cmd="mistakes", search="", category="grammar")
-        check(5, "type filter → grammar only", sorted(r["original"] for r in w["rows"]) == ["dog", "has"],
-              f"{[r['original'] for r in w['rows']]}")
+        # Harper files "teh" under grammar too, so check the category, not a fixed list.
+        check(5, "type filter → grammar only", {"dog", "has"} <= {r["original"] for r in w["rows"]}
+              and all(r["category"] == "grammar" for r in w["rows"]) and w["total"] > len(w["rows"]),
+              f"{[(r['original'], r['category']) for r in w['rows']]}")
 
         # 6. Most repeated groups recieve/Recieve.
         w = app(cmd="mistakes", category="")

@@ -40,15 +40,15 @@ enum Applier {
                               expecting expected: AppliedEdit) async -> Outcome {
         guard element.setSelectedRange(range) == .success else { return .failed }
         let pasteboard = NSPasteboard.general
-        let saved = snapshot(pasteboard)
+        let saved = Clipboard.snapshot(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(replacement, forType: .string)
-        sendCommandV()
+        Clipboard.sendCommandV()
 
         // Wait for the paste to land before giving the user's clipboard back.
         let landed = await waitForValue(expected.text, in: element, timeout: .seconds(1))
         try? await Task.sleep(for: .milliseconds(50))
-        restore(saved, to: pasteboard)
+        Clipboard.restore(saved, to: pasteboard)
         return landed ? .paste : .failed
     }
 
@@ -61,8 +61,11 @@ enum Applier {
             try? await Task.sleep(for: .milliseconds(20))
         }
     }
+}
 
-    private static func sendCommandV() {
+/// Saving and restoring the user's clipboard around a paste.
+enum Clipboard {
+    static func sendCommandV() {
         let source = CGEventSource(stateID: .combinedSessionState)
         let vKey: CGKeyCode = 9
         for down in [true, false] {
@@ -72,13 +75,13 @@ enum Applier {
         }
     }
 
-    private static func snapshot(_ pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
+    static func snapshot(_ pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
         (pasteboard.pasteboardItems ?? []).map { item in
             Dictionary(uniqueKeysWithValues: item.types.compactMap { type in item.data(forType: type).map { (type, $0) } })
         }
     }
 
-    private static func restore(_ items: [[NSPasteboard.PasteboardType: Data]], to pasteboard: NSPasteboard) {
+    static func restore(_ items: [[NSPasteboard.PasteboardType: Data]], to pasteboard: NSPasteboard) {
         pasteboard.clearContents()
         let restored = items.map { types in
             let item = NSPasteboardItem()
