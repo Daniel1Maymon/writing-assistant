@@ -581,19 +581,34 @@ extension CheckController {
 
     /// Shows the button after the last selected character, while text is selected and the mouse is up.
     fileprivate func updateSelectionButton() {
-        guard let element, !element.isSecure, isWatchingFront, !manualCard.isVisible, NSEvent.pressedMouseButtons == 0,
-              let selection = element.selectedRange, selection.length > 1, let text = element.value,
-              let fieldFrame = element.frame
-        else { return selectionButton.hide() }
+        switch selectionButtonAnchor() {
+        case .success(let last): selectionButton.show(after: last)
+        case .failure: selectionButton.hide()
+        }
+    }
+
+    struct NoButton: Error { let reason: String }
+
+    /// Where the button goes (the last selected character, AX coordinates), or why there's none (for the debug socket).
+    func selectionButtonAnchor() -> Result<CGRect, NoButton> {
+        guard let element, !element.isSecure else { return .failure(NoButton(reason: "no field")) }
+        guard isWatchingFront else { return .failure(NoButton(reason: "field not in the front app")) }
+        guard !manualCard.isVisible else { return .failure(NoButton(reason: "card open")) }
+        guard NSEvent.pressedMouseButtons == 0 else { return .failure(NoButton(reason: "mouse down")) }
+        guard let selection = element.selectedRange, selection.length > 1, let text = element.value
+        else { return .failure(NoButton(reason: "no selection")) }
+        guard let fieldFrame = element.frame else { return .failure(NoButton(reason: "no field frame")) }
         let ns = text as NSString
         let range = Self.trimmed(selection, in: ns)
         guard range.length > 1, NSMaxRange(range) <= ns.length,
-              ns.substring(with: range).rangeOfCharacter(from: .letters) != nil,
-              let last = element.bounds(for: NSRange(location: NSMaxRange(range) - 1, length: 1)),
-              last.width > 0, last.height > 0,
-              Self.visibleArea(of: element, frame: fieldFrame).contains(CGPoint(x: last.midX, y: last.midY))
-        else { return selectionButton.hide() }
-        selectionButton.show(after: last)
+              ns.substring(with: range).rangeOfCharacter(from: .letters) != nil
+        else { return .failure(NoButton(reason: "no letters selected")) }
+        guard let last = element.bounds(for: NSRange(location: NSMaxRange(range) - 1, length: 1)),
+              last.width > 0, last.height > 0
+        else { return .failure(NoButton(reason: "no character rect")) }
+        guard Self.visibleArea(of: element, frame: fieldFrame).contains(CGPoint(x: last.midX, y: last.midY))
+        else { return .failure(NoButton(reason: "last character not visible \(last) in \(Self.visibleArea(of: element, frame: fieldFrame))")) }
+        return .success(last)
     }
 
     var selectionButtonFrame: CGRect? { selectionButton.axFrame }

@@ -146,6 +146,7 @@ enum DebugServer {
                 "choices": card.choices.map { ["text": $0.text, "correction": $0.correction] },
             ]) { a, _ in a }
             if let b = controller.selectionButtonFrame { reply["button"] = [b.minX, b.minY, b.width, b.height] }
+            if case .failure(let why) = controller.selectionButtonAnchor() { reply["noButton"] = why.reason }
             if let dir = command["snapshot"] as? String, let png = card.snapshotPNG {
                 let file = URL(fileURLWithPath: dir).appendingPathComponent("manual-card.png")
                 reply["snapshot"] = (try? png.write(to: file)) != nil ? file.path : nil
