@@ -33,6 +33,8 @@ public final class TierTwoScheduler {
         public var cacheHits = 0
         public var failures = 0
         public var cancelled = 0
+        /// On-demand checks (decision 0019), also counted in `requests`.
+        public var manual = 0
         public var lastError: String?
     }
 
@@ -102,6 +104,34 @@ public final class TierTwoScheduler {
             let before = index > 0 ? sentences[index - 1].text : nil
             let after = index + 1 < sentences.count ? sentences[index + 1].text : nil
             start(sentence, before: before, after: after)
+        }
+    }
+
+    /// An on-demand check (decision 0019): none of the rules above and no cap, since the user asked for it.
+    /// It still counts as a request today and its cost is added.
+    public func checkNow(_ text: String, before: String?, after: String?) async throws -> ManualResponse {
+        ledger.rollOver(to: UsageLedger.dayKey(now()))
+        ledger.requests += 1
+        counters.requests += 1
+        counters.manual += 1
+        onLedgerChange?(ledger)
+        let order = preferFallback && models.count > 1 ? Array(models.reversed()) : models
+        log("tier2: on-demand check started")
+        do {
+            let response = try ManualCheck.parse(try await send(ManualCheck.body(text: text, before: before, after: after,
+                                                                                   models: order)), text: text)
+            counters.answers += 1
+            ledger.rollOver(to: UsageLedger.dayKey(now()))
+            ledger.cost += response.cost
+            onLedgerChange?(ledger)
+            return response
+        } catch {
+            if !(error is CancellationError) {
+                counters.failures += 1
+                counters.lastError = Self.describe(error)
+                log("tier2: on-demand check failed (\(Self.describe(error)))")
+            }
+            throw error
         }
     }
 

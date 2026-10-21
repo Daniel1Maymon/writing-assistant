@@ -248,6 +248,22 @@ Slack and other Electron apps (decision 0018). Tests:
 - Also tried, result recorded either way: VS Code (new untitled file, never saved).
 - Verified manually only: that the underline sits under the word in Slack (screenshot), since the scripts only check the rect is inside the box.
 - **Result (2026-10-19, installed debug app):** Slack 5/5 (underlines at real positions, e.g. "recieve" 47×19 inside the box; screenshot shows them under the words). No regressions: `m2-check.py` 6/6, `m3-check.py` 12/12, TextEdit 6/6, Safari 6/6, Chrome 5/6 (the same ⌥⏎ passthrough miss as before the change). VS Code: the text is now read and the word rects are real, but the field VS Code types into is a hidden 2×22 box, so every underline is clipped away; not fixed here.
+Check on demand: "check this" for a selection, by shortcut or by a button next to it (decision 0019). Tests:
+- Core (unit): the on-demand request body uses its own prompt and schema (`corrected`, `alternatives`, `reason`), carries the text and the sentence on each side, and the list of models. Parsing: `corrected` plus up to 3 alternatives; empty, duplicate and same-as-corrected alternatives are dropped; more than 3 → the first 3; `corrected` equal to the text (ignoring outer whitespace) → "looks good"; code-fenced JSON is read; unreadable → `.malformed`.
+- Core (unit): an on-demand check is sent even when the daily cap is reached; its cost is added to today's total and it counts as one request; the automatic checks keep obeying the cap.
+- Installed app, automated (`scripts/check-selection.py`, TextEdit, temp mistake log, real key presses and clicks posted by the debug app):
+  1. Select a sentence with a mistake, press ⌃⌥G (real key) → the card opens under the selection with "Checking…", then the corrected sentence and 1–3 other ways to say it.
+  2. Click the corrected sentence → it replaces the selection; exactly one mistake-log row (`grammar`, app TextEdit).
+  3. Select again → the small button appears just after the selection; click it → the same card opens.
+  4. Click an alternative → it replaces the selection; one more mistake-log row (`clarity`).
+  5. ⌃⌥G with no selection → the sentence the caret is in is checked.
+  6. A correct sentence → "Looks good" plus alternatives.
+  7. Esc closes the card and the key doesn't reach TextEdit; ⌥⏎ with the card open takes the first choice, and it's logged.
+  8. Typing, or clearing the selection, hides the button; the button never shows in a password field.
+  9. The same in the Writing window.
+  10. Tier 2 at its daily cap → ⌃⌥G still answers.
+- No regressions: `m3-check.py`, `m4-real-app.py`, `compose-check.py`, `real-app-check.py` in TextEdit and Chrome give the same results as before.
+- Verified manually only: how the button and the card look next to the text (screenshot), and Chrome (one run of steps 1–3 in a `<textarea>`). Not run in Slack or WhatsApp: Enter could send a message.
 Tests: full manual matrix above — every app gets layer 1, 2 or 3 and none gets nothing; excluded app → zero checks and zero mistake-log rows; accepting a fix via the hotkey popover and accepting a sentence rewrite both log a row; the exported CSV opens cleanly in Numbers.
 Exit: one week of daily use; every false positive / miss logged into `eval/golden.jsonl`.
 

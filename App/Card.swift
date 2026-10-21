@@ -71,7 +71,7 @@ final class CardController {
 }
 
 /// Buttons in a panel that isn't key must react to the first click.
-private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 

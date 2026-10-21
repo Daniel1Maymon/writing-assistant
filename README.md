@@ -1,6 +1,6 @@
 # Writing Assistant
 
-A personal Grammarly alternative for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
+A personal Grammarly alternative for macOS. It lives in the menu bar, watches what you type in any app, and underlines mistakes as you go. Click an underline (or press ⌥⏎) to fix it, or select any text and ask for a check and other ways to say it. Every fix you accept is saved to a private log on your Mac, so you can see which mistakes you keep making.
 
 ## How it works
 
@@ -43,6 +43,24 @@ The app can't check text inside a terminal directly. So you write in the Writing
 
 ![Fixed text pasted at the terminal prompt](docs/images/7-pasted-in-terminal.png)
 
+### Story 3: check a sentence yourself
+
+Sometimes you want a second opinion on a sentence, even if nothing is underlined, or you want to say it another way.
+
+**Step 1. Select the text.** A small button shows up right after it. (Or press ⌃⌥G. With nothing selected, ⌃⌥G checks the sentence the cursor is in.)
+
+![Selected sentence with the check button](docs/images/9-selection-button.png)
+
+**Step 2. Click the button.** A card shows the corrected text and other ways to say it. If nothing was wrong it says "Looks good" and still offers other ways to say it. Click the one you want, or press ⌥⏎ for the first one. Esc closes the card.
+
+![Card with the correction and other ways to say it](docs/images/10-check-card.png)
+
+**Step 3. Done.** Your pick replaces the selection, and it's saved to "My mistakes" (a correction as grammar, another way to say it as clarity).
+
+![Text after picking the correction](docs/images/11-check-fixed.png)
+
+This works even after the daily AI limit is reached, since you asked for it. Each check is one AI request.
+
 ### Then: see every fix you accepted
 
 Menu bar icon → "My mistakes…". Every fix is saved: what you wrote, what it changed to, the app, and the sentence. The fixes from both stories are at the top. You can search, filter by type, see your most repeated mistakes, delete rows, and export to CSV.
@@ -69,6 +87,8 @@ Click it to open the menu. From here you can:
 | Keys | What it does |
 | --- | --- |
 | ⌥⏎ | Accept the fix under the cursor |
+| ⌃⌥G | Check the selected text (or the sentence at the cursor) and show other ways to say it |
+| ⌥⏎ / Esc (with that card open) | Take the first choice / close the card |
 | ⌃⌥Space | Open or close the Writing window |
 | ⌘⏎ (in the Writing window) | Paste the text back into the app you came from |
 | Esc (in the Writing window) | Close it and keep the draft |
@@ -183,4 +203,4 @@ The first time it runs, allow it in System Settings → Privacy & Security → A
 - [DESIGN.md](DESIGN.md): what it does and why.
 - [PLAN.md](PLAN.md): milestones and the test list for each one.
 - [docs/decisions/](docs/decisions/): every non-obvious choice, one file each.
-- The screenshots are made by `scripts/readme-shots.py` with sample text.
+- The screenshots are made by `scripts/readme-shots.py` and `scripts/readme-shots-on-demand.py` with sample text.

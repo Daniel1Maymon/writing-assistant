@@ -38,6 +38,12 @@ final class CheckController {
     static let saveFixesKey = "saveAcceptedFixes"
 
     private let card = CardController()
+    /// Check on demand (decision 0019): the button after a selection, and its card.
+    private let selectionButton = SelectionButtonController()
+    let manualCard = ManualCardController()
+    /// What the open on-demand card would replace: the range and the text that was there when it was asked.
+    private var manualTarget: (range: NSRange, original: String)?
+    private var manualTask: Task<Void, Never>?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
     let compose = ComposeWindowController()
@@ -71,6 +77,9 @@ final class CheckController {
     func start() {
         UserDefaults.standard.register(defaults: [Self.saveFixesKey: true])
         card.actions = self
+        selectionButton.onClick = { [weak self] in self?.checkOnDemand() }
+        manualCard.onPick = { [weak self] text, correction in self?.pickManual(text, correction: correction) }
+        manualCard.onClose = { [weak self] in self?.hideManual() }
         tracker.onEvent = { [weak self] event in self?.handle(event) }
         tracker.allowsOwnApp = { [weak self] in self?.compose.isKey ?? false }
         compose.onTextEvent = { [weak self] event in self?.tracker.forward(event) }
@@ -98,12 +107,17 @@ final class CheckController {
         hotKey = OptionReturnTap { [weak self] in self?.optionReturn() ?? false }
         hotKey?.onCompose = { [weak self] in self?.compose.toggle() }
         hotKey?.onKeyDown = { [weak self] in self?.lastInput = .now }
+        hotKey?.onCheck = { [weak self] in self?.wantsCheckKey() ?? false }
+        hotKey?.onEscape = { [weak self] in self?.escape() ?? false }
         if hotKey?.start() != true {
             log.error("Option-Return tap could not start")
         }
         // Catches scrolling, which has no AX notification of its own. Cheap: one AX call per underline.
         geometryTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.redraw() }
+            MainActor.assumeIsolated {
+                self?.redraw()
+                self?.updateSelectionButton()
+            }
         }
     }
 
@@ -155,6 +169,7 @@ final class CheckController {
             // Apps re-announce focus on the same field (e.g. a click inside it): keep its results then.
             guard tracker.focused != element else { return }
             card.hide()
+            hideManual()
             element = Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") ? nil : tracker.focused
             document = DocumentState()
             tierTwo?.update(sentences: [], caret: nil) { _ in true }
@@ -162,6 +177,7 @@ final class CheckController {
             schedule(after: .zero)
         case .valueChanged:
             card.hide()
+            hideManual()
             // Re-split right away so unchanged sentences keep their underlines in the right place.
             if let element, !element.isSecure, let text = element.value {
                 _ = document.update(text: text)
@@ -223,6 +239,11 @@ final class CheckController {
         redraw()
     }
 
+    /// A text view inside a scroll view is as tall as its text; only the scroll view's frame is visible.
+    private static func visibleArea(of element: AXElement, frame: CGRect) -> CGRect {
+        (element.parent.flatMap { $0.role == "AXScrollArea" ? $0.frame : nil } ?? frame).intersection(frame)
+    }
+
     private func redraw() {
         guard let element, !element.isSecure, NSWorkspace.shared.frontmostApplication?.processIdentifier == tracker.app?.processIdentifier,
               let fieldFrame = element.frame else {
@@ -230,9 +251,7 @@ final class CheckController {
             overlay.hide()
             return
         }
-        // A text view inside a scroll view is as tall as its text; only the scroll view's frame is visible.
-        let visible = (element.parent.flatMap { $0.role == "AXScrollArea" ? $0.frame : nil } ?? fieldFrame)
-            .intersection(fieldFrame)
+        let visible = Self.visibleArea(of: element, frame: fieldFrame)
         drawn = document.placed(ignoring: ignore).compactMap { placed in
             guard let rect = element.bounds(for: placed.range), rect.width > 0 else { return nil }
             let clipped = rect.intersection(visible)
@@ -257,7 +276,8 @@ extension CheckController: CardActions {
     }
 
     private func clicked(at cocoaPoint: CGPoint) {
-        guard !card.contains(cocoaPoint: cocoaPoint) else { return }
+        guard !card.contains(cocoaPoint: cocoaPoint), !manualCard.contains(cocoaPoint: cocoaPoint) else { return }
+        hideManual()
         // The squiggle sits just under the text, so give the hit area a little room below. A word beats its
         // sentence; the sentence-wide line is hit only along the bottom of the sentence.
         let hit = drawn.first { item in
@@ -279,6 +299,11 @@ extension CheckController: CardActions {
 
     /// ⌥⏎: returns true when it accepted something, so the key is swallowed.
     private func optionReturn() -> Bool {
+        if manualCard.isVisible {
+            guard let first = manualCard.choices.first else { return false }
+            pickManual(first.text, correction: first.correction)
+            return true
+        }
         guard let target = card.suggestion ?? suggestionAtCaret()?.suggestion,
               !target.replacements.isEmpty, let placed = placed(id: target.id), let text = element?.value,
               // Positions can be a moment stale (some apps report edits late): only take the key if the word is really there.
@@ -410,6 +435,10 @@ final class OptionReturnTap {
     var onKeyDown: (() -> Void)?
     /// ⌃⌥Space: open or close the Writing window (decision 0016). Always swallowed.
     var onCompose: (() -> Void)?
+    /// ⌃⌥G: check the selection (decision 0019). Swallowed when it returns true.
+    var onCheck: (() -> Bool)?
+    /// Esc: swallowed when it returns true.
+    var onEscape: (() -> Bool)?
 
     init(handler: @escaping () -> Bool) { self.handler = handler }
 
@@ -445,8 +474,129 @@ final class OptionReturnTap {
             DispatchQueue.main.async { onCompose() }  // not inside the tap callback, which must return fast
             return true
         }
+        if type == CGEventType.keyDown.rawValue, key == 5, modifiers == [.maskControl, .maskAlternate], let onCheck {
+            return onCheck()
+        }
+        if type == CGEventType.keyDown.rawValue, key == 53, modifiers.isEmpty, let onEscape {
+            return onEscape()
+        }
         return type == CGEventType.keyDown.rawValue && (key == 36 || key == 76) && modifiers == .maskAlternate && handler()
     }
+}
+
+// MARK: Check on demand (decision 0019)
+
+extension CheckController {
+    private var isWatchingFront: Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == tracker.app?.processIdentifier
+    }
+
+    /// ⌃⌥G, inside the key tap: take the key only when there's a field to check; the work runs after the tap returns.
+    fileprivate func wantsCheckKey() -> Bool {
+        guard let element, !element.isSecure, isWatchingFront else { return false }
+        DispatchQueue.main.async { [weak self] in self?.checkOnDemand() }
+        return true
+    }
+
+    fileprivate func escape() -> Bool {
+        guard manualCard.isVisible else { return false }
+        DispatchQueue.main.async { [weak self] in self?.hideManual() }
+        return true
+    }
+
+    /// Checks the selection, or with no selection the caret's sentence, and opens the card under it.
+    func checkOnDemand() {
+        guard let element, !element.isSecure, isWatchingFront, let text = element.value,
+              let selection = element.selectedRange else { return }
+        let ns = text as NSString
+        var range = selection
+        if range.length == 0 {
+            guard let sentence = document.sentences.first(where: {
+                selection.location >= $0.range.location && selection.location <= NSMaxRange($0.range)
+            }) else { return }
+            range = sentence.range
+        }
+        range = Self.trimmed(range, in: ns)
+        guard range.length > 0, NSMaxRange(range) <= ns.length else { return }
+        let original = ns.substring(with: range)
+        guard original.rangeOfCharacter(from: .letters) != nil else { return }
+        let before = document.sentences.last { NSMaxRange($0.range) <= range.location }?.text
+        let after = document.sentences.first { $0.range.location >= NSMaxRange(range) }?.text
+
+        card.hide()
+        selectionButton.hide()
+        manualTask?.cancel()
+        manualTarget = (range, original)
+        manualCard.show(.checking, under: anchorRect(for: range, in: element))
+        guard let tierTwo else {
+            manualCard.update(.failed("No AI key yet. Add your OpenRouter key from the menu bar icon."))
+            return
+        }
+        log.info("On-demand check: \(range.length, privacy: .public) characters")
+        manualTask = Task { [weak self] in
+            do {
+                let response = try await tierTwo.checkNow(original, before: before, after: after)
+                guard !Task.isCancelled, let self, self.manualTarget?.range == range else { return }
+                manualCard.update(.result(response.result))
+            } catch {
+                guard !Task.isCancelled, let self, self.manualTarget?.range == range else { return }
+                let detail = tierTwo.counters.lastError.map { " (\($0))" } ?? ""
+                manualCard.update(.failed("Couldn't reach the AI\(detail). Try again in a moment."))
+            }
+        }
+    }
+
+    /// Where to open the card: under the text, or at the mouse when the app can't say where the text is.
+    private func anchorRect(for range: NSRange, in element: AXElement) -> CGRect {
+        if let rect = element.bounds(for: range), rect.width > 0, rect.height > 0 { return rect }
+        let mouse = NSEvent.mouseLocation
+        return OverlayController.cocoa(CGRect(x: mouse.x, y: mouse.y, width: 1, height: 1))  // the same flip both ways
+    }
+
+    private static func trimmed(_ range: NSRange, in ns: NSString) -> NSRange {
+        let text = ns.substring(with: range)
+        let leading = text.prefix { $0.isWhitespace }.utf16.count
+        let trailing = String(text.reversed().prefix { $0.isWhitespace }).utf16.count
+        return NSRange(location: range.location + leading, length: max(range.length - leading - trailing, 0))
+    }
+
+    fileprivate func pickManual(_ text: String, correction: Bool) {
+        guard let target = manualTarget else { return }
+        let reason: String
+        if case .result(let result) = manualCard.phase { reason = result.reason } else { reason = "" }
+        hideManual()
+        Task {
+            await replace(range: target.range, original: target.original, with: text,
+                          category: correction ? .grammar : .clarity, message: reason,
+                          ruleId: correction ? "llm.manual.correction" : "llm.manual.alternative", source: .llm)
+        }
+    }
+
+    func hideManual() {
+        manualTask?.cancel()
+        manualTask = nil
+        manualTarget = nil
+        if manualCard.isVisible { manualCard.hide() }
+    }
+
+    /// Shows the button after the last selected character, while text is selected and the mouse is up.
+    fileprivate func updateSelectionButton() {
+        guard let element, !element.isSecure, isWatchingFront, !manualCard.isVisible, NSEvent.pressedMouseButtons == 0,
+              let selection = element.selectedRange, selection.length > 1, let text = element.value,
+              let fieldFrame = element.frame
+        else { return selectionButton.hide() }
+        let ns = text as NSString
+        let range = Self.trimmed(selection, in: ns)
+        guard range.length > 1, NSMaxRange(range) <= ns.length,
+              ns.substring(with: range).rangeOfCharacter(from: .letters) != nil,
+              let last = element.bounds(for: NSRange(location: NSMaxRange(range) - 1, length: 1)),
+              last.width > 0, last.height > 0,
+              Self.visibleArea(of: element, frame: fieldFrame).contains(CGPoint(x: last.midX, y: last.midY))
+        else { return selectionButton.hide() }
+        selectionButton.show(after: last)
+    }
+
+    var selectionButtonFrame: CGRect? { selectionButton.axFrame }
 }
 
 /// Used only when Harper can't run: macOS spelling, no grammar.

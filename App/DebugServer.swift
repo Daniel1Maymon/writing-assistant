@@ -131,6 +131,26 @@ enum DebugServer {
             return reply(["ok": true, "visible": compose.isVisible, "key": compose.isKey, "text": compose.text,
                           "previousApp": compose.previousApp?.bundleIdentifier ?? "",
                           "aboveFront": compose.isAbove(NSWorkspace.shared.frontmostApplication)])
+        case "manual":
+            let card = controller.manualCard
+            var phase = "hidden"
+            var extra: [String: Any] = [:]
+            switch card.phase {
+            case .checking: phase = "checking"
+            case .failed(let message): phase = "failed"; extra["message"] = message
+            case .result(let result): phase = "result"; extra["looksGood"] = result.looksGood; extra["reason"] = result.reason
+            case nil: break
+            }
+            var reply: [String: Any] = extra.merging([
+                "ok": true, "visible": card.isVisible, "phase": phase,
+                "choices": card.choices.map { ["text": $0.text, "correction": $0.correction] },
+            ]) { a, _ in a }
+            if let b = controller.selectionButtonFrame { reply["button"] = [b.minX, b.minY, b.width, b.height] }
+            if let dir = command["snapshot"] as? String, let png = card.snapshotPNG {
+                let file = URL(fileURLWithPath: dir).appendingPathComponent("manual-card.png")
+                reply["snapshot"] = (try? png.write(to: file)) != nil ? file.path : nil
+            }
+            return Self.reply(reply)
         case "setLog":
             if let enabled = command["enabled"] as? Bool {
                 UserDefaults.standard.set(enabled, forKey: CheckController.saveFixesKey)

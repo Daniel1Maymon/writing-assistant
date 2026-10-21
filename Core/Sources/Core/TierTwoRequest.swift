@@ -123,7 +123,7 @@ Rules: never change the meaning, tone, names or facts. Casual chat style is fine
                            cost: (usage?["cost"] as? NSNumber)?.doubleValue ?? 0, model: root["model"] as? String)
     }
 
-    private static func stripFence(_ content: String) -> String {
+    static func stripFence(_ content: String) -> String {
         var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasPrefix("```") else { return text }
         text = String(text.drop { $0 != "\n" })
