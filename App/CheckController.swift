@@ -170,7 +170,9 @@ final class CheckController {
             guard tracker.focused != element else { return }
             card.hide()
             hideManual()
-            element = Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") ? nil : tracker.focused
+            // Terminals and read-only web pages aren't the user's writing (decisions 0013, 0021).
+            element = Self.terminals.contains(tracker.app?.bundleIdentifier ?? "") || tracker.focused?.isReadOnlyPage == true
+                ? nil : tracker.focused
             document = DocumentState()
             tierTwo?.update(sentences: [], caret: nil) { _ in true }
             redraw()

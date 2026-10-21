@@ -78,7 +78,7 @@ enum DebugServer {
         case "axdump":
             // What the focused element exposes, for adding support for new kinds of fields.
             guard let element = controller.focusedElement else { return reply(["ok": false]) }
-            return reply(["ok": true, "tree": dump(element, depth: command["depth"] as? Int ?? 3)])
+            return reply(["ok": true, "tree": dump(element, depth: command["depth"] as? Int ?? 3), "edit": element.editSignals])
         case "setTierTwo":
             // Lets m2/m3 checks run without model calls; on again restores the configured key.
             AppState.shared?.setTierTwo(enabled: command["enabled"] as? Bool ?? true)

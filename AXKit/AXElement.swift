@@ -46,6 +46,23 @@ struct AXElement: Equatable, @unchecked Sendable {
         return AXUIElementGetPid(ref, &pid) == .success ? pid : nil
     }
 
+    private func settable(_ name: String) -> Bool {
+        var result: DarwinBoolean = false
+        return AXUIElementIsAttributeSettable(ref, name as CFString, &result) == .success && result.boolValue
+    }
+
+    /// A web page you only read: Chrome focuses the page itself after a click on its text (decision 0021).
+    /// Mail's compose body is a web area too, but its value is settable.
+    var isReadOnlyPage: Bool { isWebArea && !settable("AXValue") }
+
+    /// Signals of "can the user type here", for telling a read-only web page from an editor (debug socket).
+    var editSignals: [String: Any] {
+        ["valueSettable": settable("AXValue"), "markerSelectionSettable": settable("AXSelectedTextMarkerRange"),
+                "editableAncestor": element("AXEditableAncestor")?.role ?? "",
+                "highestEditableAncestor": element("AXHighestEditableAncestor")?.role ?? "",
+                "focusableAncestor": element("AXFocusableAncestor")?.role ?? ""]
+    }
+
     var isSecure: Bool { subrole == "AXSecureTextField" || role == "AXSecureTextField" }
 
     var frame: CGRect? {
