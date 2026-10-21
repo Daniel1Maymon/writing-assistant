@@ -161,6 +161,9 @@ def main():
         until(lambda: osascript('tell application "Terminal" to get contents of selected tab of front window'),
               lambda t: t.rstrip().endswith(("%", "$")), 10)
         time.sleep(0.5)
+        app(cmd="type", text="echo old words")  # already on the prompt: paste back replaces it (decision 0020)
+        until(lambda: osascript('tell application "Terminal" to get contents of selected tab of front window'),
+              lambda t: "echo old words" in t, 3)
         hotkey()
         until(compose, lambda c: c["key"], 3)
         app(cmd="type", text="echo hello from the writing window")
@@ -168,8 +171,11 @@ def main():
         key(36, "command")
         contents = until(lambda: osascript('tell application "Terminal" to get contents of selected tab of front window'),
                          lambda t: "echo hello from the writing window" in t, 3)
-        check(8, "⌘⏎ → pasted at the Terminal prompt (not run)", "echo hello from the writing window" in contents
-              and "\nhello from the writing window" not in contents, f"last line={contents.strip().splitlines()[-1:]!r}")
+        time.sleep(0.3)
+        contents = osascript('tell application "Terminal" to get contents of selected tab of front window')
+        last = contents.strip().splitlines()[-1] if contents.strip() else ""
+        check(8, "⌘⏎ → replaces the Terminal prompt line (not run)", last.endswith("% echo hello from the writing window")
+              or last.endswith("$ echo hello from the writing window"), f"last line={last!r}")
     finally:
         if terminal_opened:
             key(32, "control")  # ⌃U clears the prompt line

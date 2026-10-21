@@ -65,12 +65,19 @@ enum Applier {
 
 /// Saving and restoring the user's clipboard around a paste.
 enum Clipboard {
-    static func sendCommandV() {
+    static func sendCommandV() { send(9, .maskCommand) }
+
+    /// ⌃E ⌃U: end of line, then delete the line. The same in bash, zsh, Claude Code and tmux (decision 0020).
+    static func clearTerminalLine() {
+        send(14, .maskControl)
+        send(32, .maskControl)
+    }
+
+    private static func send(_ key: CGKeyCode, _ flags: CGEventFlags) {
         let source = CGEventSource(stateID: .combinedSessionState)
-        let vKey: CGKeyCode = 9
         for down in [true, false] {
-            let event = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: down)
-            event?.flags = .maskCommand
+            let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down)
+            event?.flags = flags
             event?.post(tap: .cghidEventTap)
         }
     }

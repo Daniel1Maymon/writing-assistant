@@ -84,6 +84,10 @@ final class ComposeWindowController: NSObject, NSWindowDelegate {
                 try? await Task.sleep(for: .milliseconds(20))
             }
             try? await Task.sleep(for: .milliseconds(150))
+            if CheckController.terminals.contains(target?.bundleIdentifier ?? "") {
+                Clipboard.clearTerminalLine()  // replace the prompt line, don't add to it (decision 0020)
+                try? await Task.sleep(for: .milliseconds(50))
+            }
             Clipboard.sendCommandV()
             try? await Task.sleep(for: .milliseconds(400))
             Clipboard.restore(saved, to: pasteboard)
